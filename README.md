@@ -104,23 +104,14 @@ byModel(days, {}, "nine"); // 只看某个站的模型分布
 ### 作为 DSH 插件安装
 
 ```bash
-# 尚未发布 npm；dsh plugin 转发给 pnpm，pnpm 支持 git 源
 dsh plugin --profile web add github:zh667/TokenLedger
 ```
 
-然后在该 profile 的 `package.json` 里把它加进 `dsh.profile.bundles`：
+**就这一条。** `dsh plugin` 转发给 pnpm；因为本包声明了 `dsh.bundle`，DSH 会自动把它登记进该 profile 的 `dsh.profile.bundles`，bundle patch 随即自动挂载插件行——不需要改 `package.json`，也不需要手写任何 YAML。
 
-```json
-{ "dsh": { "profile": { "bundles": [
-    "@deepseek-ai/dsh-base",
-    "@deepseek-ai/dsh-web-app",
-    "dsh-tokenledger"
-] } } }
-```
+零配置即可用：所有调用归到 `direct`，按天按模型的报表已经是对的。
 
-**到此为止就能用了**——bundle 机制会自动挂载插件行，不需要手写任何 YAML。零配置下所有调用归到 `direct`，按天按模型的报表已经是对的。
-
-想要中转站维度，在 profile 的 `cordis.patch.yml` 里加三行：
+想要中转站维度，在该 profile 的 `cordis.patch.yml` 里加三行：
 
 ```yaml
 - id: tokenledger
@@ -129,7 +120,7 @@ dsh plugin --profile web add github:zh667/TokenLedger
       my-route: https://relay.example.com/v1
 ```
 
-`my-route` 是 `dsh-llm-pi-ai` 的 `config.providers` 下的键名，也就是每条 assistant 消息上 `AssistantProvenance.provider` 的值。**这是唯一一个本代码推导不出来的东西**——站点 id（取精确域名）、站点跑的哪套软件（指纹识别）都会自动得出。要覆盖就用长形式：
+`my-route` 是 `dsh-llm-pi-ai` 的 `config.providers` 下的键名，也就是每条 assistant 消息上 `AssistantProvenance.provider` 的值。**这是唯一一个本代码推导不出来的东西**——站点 id（取精确域名）和站点跑的哪套软件（指纹识别）都会自动得出。要覆盖就用长形式：
 
 ```yaml
       my-route:
@@ -137,6 +128,8 @@ dsh plugin --profile web add github:zh667/TokenLedger
         id: my-label
         type: sub2api
 ```
+
+卸载：`dsh plugin --profile web remove dsh-tokenledger`。
 
 采集器**扫描**而不是订阅：`listSnapshots()` 的 revision 让未变动的会话零成本跳过，`readFrom(id, seq)` 只读尾部。订阅会把这段代码放进请求热路径，而且插件没运行时写入的一切会永久丢失——重启后静默少算。扫描是幂等且自愈的。
 
