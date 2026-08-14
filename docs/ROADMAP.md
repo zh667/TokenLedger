@@ -31,7 +31,7 @@ What matters is which gaps DeepSeek will close themselves:
 | Checkpoints / rewind | none | DeepSeek will ship it — CC has it |
 | ACP (editor-driven agent) | none | DeepSeek will ship it |
 | Git worktree isolation | none | DeepSeek will ship it |
-| OTel / observability | none | Real gap, thin demand, all community repos ≤2★ |
+| OTel / observability | **ships** — `dsh-session-telemetry-otel` is in the default web profile, `DISABLED` unless `DSH_TELEMETRY_MODE` is set | Not a gap. An earlier revision of this table claimed otherwise; that was wrong, and checked against a real install rather than the published type declarations it would have been caught sooner |
 | **Relay-site billing reconciliation** | none | **DeepSeek will never ship it** |
 
 The last row is the only structurally durable one. Reconciliation exists to
@@ -198,6 +198,51 @@ Submit the day Track E clears the bar, not before and not much after.
 
 **This gate is a checklist item, not a background task.** Whoever finishes
 Track E is responsible for opening the four submissions in the same session.
+
+## Verified against a real DSH install
+
+Installed `@deepseek-ai/dsh@0.1.0-rc.6` (350 MB of dependencies) and dumped the
+default `web` profile composition on 2026-08-14. Four assumptions this project
+rests on, checked rather than inferred:
+
+**Sessions are JSONL on disk.** `@deepseek-ai/dsh-session-persistence-jsonl`
+with `root: dshHomePath('sessions')` — so `$DSH_HOME/sessions`. A separate
+`dsh-session-query-sqlite` runs at `:memory:` with `openAt: never` by default,
+which is DSH's own index and not somewhere TokenLedger should write.
+
+**Third-party endpoints are configuration, not code.** The shipped adapter is
+`@deepseek-ai/dsh-llm-pi-ai`, whose README states that a route pi-ai does not
+ship "is declared outright, so an OpenAI-compatible gateway, a self-hosted
+server, or a provider newer than the installed catalog is configuration rather
+than a code change". Relay sites are therefore ordinary DSH provider routes,
+which is what makes this project possible at all.
+
+**The provider → base URL map has a known location and shape.** It is that
+adapter's `config.providers`, keyed by the route name that later appears in
+`AssistantProvenance.provider`:
+
+```yaml
+- id: llm
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      <route>:
+        apiKeyEnv: SOME_ENV_VAR    # a credential reference; no secret in the file
+        baseURL: https://relay.example.com
+```
+
+That closes the attribution chain end to end: `assistant/message` names its
+route, the composition maps that route to an origin, and the site registry maps
+the origin to a relay. `createSiteResolver` needs no guessing.
+
+**Credentials already have a home.** `@deepseek-ai/dsh-credentials-local` is in
+the default profile, so Track C's credential-store requirement has an existing
+seam rather than needing a new one.
+
+Still unverified, because it needs a provider credential and a real session:
+that the collector reads an actual `$DSH_HOME/sessions` log correctly end to
+end. Every fold assumption is tested against synthetic events shaped from the
+published type declarations, which is not the same thing.
 
 ## Track A — persistence
 
