@@ -1,6 +1,6 @@
 # TokenLedger
 
-> 🚧 **早期开发中**：全链路已在真实 DSH 会话与真实中转站上端到端验证；尚未封装成 DSH 插件。
+> 🚧 **早期开发中**：已作为 DSH 插件在真实 DSH 中跑通全链路；Web UI 页面尚未完成，也未发布 npm。
 
 > ⚠️ **非官方声明**：TokenLedger 是独立的第三方社区项目，与 DeepSeek 无隶属、赞助或背书关系。「DeepSeek」及相关商标归其权利人所有。
 
@@ -65,7 +65,7 @@ byModel(days, {}, "nine"); // 只看某个站的模型分布
 
 ## 状态
 
-共 **94 个测试**，零运行时依赖（SQLite 用 Node 内置的 `node:sqlite`）。
+共 **102 个测试**，零运行时依赖（SQLite 用 Node 内置的 `node:sqlite`）。
 
 | 模块 | 状态 |
 |---|---|
@@ -82,7 +82,32 @@ byModel(days, {}, "nine"); // 只看某个站的模型分布
 | 中转站软件指纹识别（零凭证） | ✅ |
 | 对账引擎（证据等级 / 拒绝不可比） | ✅ |
 | 接真实 DSH 会话日志 | ✅ 已端到端验证 |
-| DSH 插件封装与 Web UI 页面 | ⬜ |
+| DSH 插件封装（`dsh.bundle` + Cordis 行） | ✅ 已在真实 DSH 里跑通 |
+| Web UI 页面 | ⬜ |
+| 发 npm / 提交索引收录 | ⬜ |
+
+### 作为 DSH 插件安装
+
+```yaml
+# $DSH_HOME/profiles/<name>/cordis.patch.yml
+- insert:
+    - id: tokenledger
+      name: 'tokenledger/plugin'
+      config:
+        database: !!js dshHomePath('tokenledger.sqlite')
+        sites:
+          - id: my-relay
+            type: newapi
+            baseUrl: https://relay.example.com/v1
+        providerBaseUrls:
+          my-route: https://relay.example.com/v1
+```
+
+`providerBaseUrls` 的键就是 `dsh-llm-pi-ai` 里 `config.providers` 的路由名，也就是每条 assistant 消息上 `AssistantProvenance.provider` 的值。
+
+采集器**扫描**而不是订阅：`listSnapshots()` 的 revision 让未变动的会话零成本跳过，`readFrom(id, seq)` 只读尾部。订阅会把这段代码放进请求热路径，而且插件没运行时写入的一切都会永久丢失——重启后静默少算。扫描是幂等且自愈的，订阅两者都不是。
+
+**任何失败都是采集器的问题，不是 DSH 的**：日志损坏、数据库锁住、上游 rc 版改了形状，全部降级成计数 + 一条日志 + 跳过该会话。记账值得做，但不值得让一轮对话失败。
 
 ### 端到端实测（2026-08-14，真实会话 + 真实中转站）
 

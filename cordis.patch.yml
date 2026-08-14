@@ -1,0 +1,29 @@
+# The TokenLedger bundle patch.
+#
+# One row, inserted after the persistence stack it reads from. The row carries
+# neutral defaults: with no `sites` configured every call attributes to
+# `direct`, which still produces correct per-day, per-model accounting — the
+# relay dimension simply stays empty until a user declares their sites.
+#
+# To attribute usage to a relay, mirror the model adapter's routes here. The
+# keys of `providerBaseUrls` are the same route names that appear in
+# `dsh-llm-pi-ai`'s `config.providers`, which are in turn the strings that
+# arrive as `AssistantProvenance.provider` on every assistant message:
+#
+#   - id: tokenledger
+#     config:
+#       database: !!js dshHomePath('tokenledger.sqlite')
+#       sites:
+#         - id: my-relay
+#           type: newapi
+#           baseUrl: https://relay.example.com/v1
+#       providerBaseUrls:
+#         my-route: https://relay.example.com/v1
+
+- insert:
+    - id: tokenledger
+      name: 'tokenledger/plugin'
+      config:
+        database: !!js dshHomePath('tokenledger.sqlite')
+        sweepIntervalMs: 60000
+        sweepOnStart: true
