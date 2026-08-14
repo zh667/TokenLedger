@@ -131,72 +131,182 @@ API keys, or response content.
 - [x] Range / by-model / by-site queries.
 - [x] 16 tests, no runtime dependencies.
 
-## Phase 1 — persistence and cost (`v0.1`)
+## Execution plan: three independent tracks
+
+The remaining work is not a chain. Sequencing it as one would idle two thirds
+of it behind the slowest link, so it runs as three tracks that share nothing
+but the bucket shape already fixed in Phase 0.
+
+```text
+Track A — persistence          Track B — pricing           Track C — adapters
+ SQLite rollups                 rate table                  normalized billing fact
+ checkpoints                    peak/off-peak windows       New API (key + PAT)
+ session discovery              cost estimation             Sub2API
+ full rebuild                   per-site overrides          fixtures
+ diagnostics
+        │                              │                            │
+        └──────────────┬───────────────┴────────────────┬───────────┘
+                       ▼                                ▼
+              Track D — reconciliation           Track E — plugin + UI
+               evidence levels                    dsh.bundle manifest
+               difference reporting               usage page
+               (needs B's cost + C's shape)       reconciliation page
+                                                  (needs A)
+```
+
+Why they are genuinely independent:
+
+- **B needs nothing.** Cost is a pure function of the buckets Phase 0 already
+  produces. No I/O, no DSH, no database. Testable the moment it is written.
+- **C needs nothing.** Each adapter is an HTTP client returning a normalized
+  billing fact. It talks to a relay, never to DSH or to the store.
+- **A needs a DSH install to exercise end to end, but not to build.** The
+  schema, checkpoint logic, and rebuild path are testable against synthetic
+  event logs.
+- **D can start as soon as C's output *shape* is agreed**, which is a
+  five-minute decision, not a dependency on finished adapters. The DSH side it
+  compares against — `bySite()` — already exists.
+- **E is the only true tail.** It needs A working to have anything to show.
+
+Consequence for ordering: A, B, and C run together. D follows the shape
+agreement, not the adapters. E is last, and is also the listing gate below.
+
+## Ecosystem listing gate
+
+**Do not submit to the curated indexes until Track E ships a real plugin.**
+Verified 2026-08-14 against each index's contributing rules.
+
+| Index | ★ | Mechanism | Requirement |
+|---|---|---|---|
+| `AdamPlatin123/awesome-dsh-plugins` | 623 | **Automatic** — scans the `dsh-plugin` topic | None. The topic is already set; pickup is free. |
+| `awesome-dsh-plugin/awesome-dsh-plugin` | 483 | Pull request | `package.json` must declare a **`dsh.bundle`** manifest (`dsh.client` alone is rejected) **and** a `cordis.patch.yml` must exist. "Placeholder, name-squat, or README-only repos don't qualify." Actively maintained; inactive entries are pruned. |
+| `0xsline/awesome-deepseek-harness` | 289 | Pull request | A real ecosystem repository, no dead links or placeholders. One factual line, no marketing. |
+| `bruc3van/awesome-dsh-plugin` | 54 | Pull request | Explains what the plugin solves and for whom. |
+
+Submission mechanics for the PR-based ones: fork, add one line under the
+matching category to **both** the English and Chinese README, open a PR titled
+`docs: add zh667/TokenLedger`. The line:
+
+```markdown
+- [zh667/TokenLedger](https://github.com/zh667/TokenLedger) - DSH token usage accounting reconciled against New API and Sub2API relay-site billing.
+```
+
+Timing: these indexes review by hand. As of 2026-08-14 they carry 22 and 17
+open issues respectively — still tractable. The ecosystem is 48 hours old and
+adding dozens of repositories a day, so the review queue will lengthen fast.
+Submit the day Track E clears the bar, not before and not much after.
+
+**This gate is a checklist item, not a background task.** Whoever finishes
+Track E is responsible for opening the four submissions in the same session.
+
+## Track A — persistence
+
+Storage uses Node's built-in `node:sqlite` (`DatabaseSync`), verified working
+on Node 22.23.1. It keeps the package at zero runtime dependencies.
 
 - [ ] SQLite rollup schema keyed by `(day, site, provider, model)`.
-- [ ] Checkpoint store and tested full-rebuild path.
+- [ ] Checkpoint store: `(sessionId → consumedSeq, logRevision)`.
 - [ ] Session discovery via `listSnapshots()` revisions; incremental
       `readFrom(id, consumedSeq + 1)`.
-- [ ] Official DeepSeek pricing table with peak/off-peak periods and an
-      explicit rate-effective date.
-- [ ] Per-site pricing overrides, since relays set their own rates.
-- [ ] Estimated cost stored beside the tokens that produced it, never
-      recomputed retroactively at a changed rate.
+- [ ] Full-rebuild path: `readFrom(id, 0)` over every session, tested as a
+      first-class operation rather than a recovery-only one.
 - [ ] CSV/JSON export.
+- [ ] Reindex, integrity, lag, and missing-usage diagnostics.
 
 Acceptance: a synthetic session that switches models mid-run, has one
 failed-but-billed request, and is interrupted and resumed produces totals
-matching a hand-computed expectation — before and after a full reindex.
+matching a hand-computed expectation — before and after a full reindex, and
+byte-identical between an incremental fold and a from-scratch fold.
 
-## Phase 2 — relay billing adapters (`v0.2`)
+## Track B — pricing and cost
 
-Written as a standalone module with no DSH dependency, so UsagePlane and other
-agents can consume it.
+Pure functions over the buckets Phase 0 already produces. No I/O.
 
-- [ ] New API PAT mode: authenticated self-log/stat APIs for time, model,
-      prompt/completion tokens, and quota.
-- [ ] New API API-key summary mode: `GET /api/usage/token` for granted, used,
-      and remaining quota. Summary-only.
-- [ ] Sub2API API-key mode: `GET /v1/usage` for key-scoped totals, model
-      statistics, actual cost, subscription counters, or wallet balance.
-- [ ] Recorded fixtures so the adapters are testable without a live account.
-- [ ] Credentials in an OS-protected or existing DSH credential store. Never in
-      a URL, SQLite row, log line, or diagnostic report — no
-      `/api/log/token?key=...`.
-- [ ] Reconciliation engine emitting `request | aggregate | summary`.
+- [ ] Rate table with explicit effective dates and currency.
+- [ ] DeepSeek official peak/off-peak windows, expressed as a timezone-anchored
+      schedule rather than a hardcoded offset.
+- [ ] Separate rates per bucket: uncached input, cache read, cache write,
+      output.
+- [ ] Per-site rate overrides — a relay sets its own prices and is the whole
+      reason a local estimate and a site's charge can legitimately differ.
+- [ ] Estimated cost stored beside the tokens that produced it, never
+      recomputed retroactively at a changed rate.
+- [ ] An unpriced model yields an explicit "no rate" result, never zero.
+
+Acceptance: repricing the same day's tokens under two rate tables yields two
+stored estimates that both survive, and neither rewrites the other.
+
+## Track C — relay billing adapters
+
+Standalone, no DSH dependency, so UsagePlane and other agents can consume them.
+Endpoints below were read from New API's router source, not its docs.
+
+New API — reachable with only an **API key** (`TokenAuthReadOnly`):
+
+- [ ] `GET /api/usage/token/` — granted, used, remaining quota. `summary`.
+- [ ] `GET /api/log/token` — that key's own request log. Potentially
+      `request`-level, which is better than the previously assumed
+      summary-only ceiling for key-based access.
+
+New API — reachable with a **user session/PAT** (`UserAuth`):
+
+- [ ] `GET /api/log/self` and `/api/log/self/search` — account-wide request log.
+- [ ] `GET /api/log/self/stat` — aggregated statistics.
+- [ ] `GET /api/data/self` — quota time series. `aggregate`.
+- [ ] `GET /api/user/self` — balance and quota.
+
+Sub2API:
+
+- [ ] `GET /v1/usage` with an API key — key-scoped totals, model statistics,
+      actual cost, subscription counters, wallet balance.
+- [ ] `/api/v1/usage` authenticated user adapter, if request-level logs are
+      needed and the deployment exposes them.
+
+Cross-cutting:
+
+- [ ] Recorded fixtures so every adapter is testable without a live account.
+- [ ] Credentials in an OS-protected or existing DSH credential store. Always
+      an `Authorization` header, never a query string — `?key=...` leaks into
+      browser history, reverse-proxy logs, and diagnostics.
+- [ ] Every adapter reports which evidence level its data can support, rather
+      than the caller assuming.
+
+## Track D — reconciliation
+
+Starts once Track C's normalized fact shape is agreed; does not wait for
+finished adapters. The DSH side it compares against, `bySite()`, already exists.
+
+- [ ] Normalized billing fact: site, window, model?, tokens?, cost?, currency?,
+      quota?, balance?, evidence level, fetched-at.
+- [ ] Comparison emitting `request | aggregate | summary` and never claiming a
+      level its inputs cannot support.
 - [ ] Keep estimated cost, reported cost, quota, wallet balance, and currency
       as five separate facts; never silently add or convert.
+- [ ] Report the difference, its direction, and the freshness of both sides.
 
 Acceptance: two sites serving the same model each produce that site's DSH
 totals beside the site's own reported figures, with an honestly labelled
 evidence level and a stated difference.
 
-## Phase 3 — DSH plugin surface (`v0.3`)
+## Track E — plugin surface and listing
+
+The tail, and the gate for the ecosystem submissions recorded above.
 
 - [ ] Cordis plugin registering the collector on the session event seam.
+- [ ] `dsh.bundle` manifest in `package.json` and a `cordis.patch.yml` — both
+      are hard requirements of the largest curated index.
 - [ ] Web UI page: model-first usage, relay-site filter, date ranges.
 - [ ] Separate site-centric reconciliation page: exact domain, site type, data
       freshness, balance, reported cost, local estimate, difference, level.
-- [ ] Reindex, integrity, lag, and missing-usage diagnostics.
-- [ ] Publish to npm under the `dsh-plugin` topic.
+- [ ] Publish to npm.
+- [ ] **Open the four index submissions in the same session** — see the
+      ecosystem listing gate above.
 
-## Phase 4 — beyond DSH (`v0.4`, conditional)
+## Later — beyond DSH (conditional)
 
-Reconciliation has nothing to do with which agent spent the tokens — it depends
-only on where the tokens were bought. Only pursue this once Phases 1–3 are
-solid.
+Reconciliation has nothing to do with which agent spent the tokens; it depends
+only on where the tokens were bought. Only pursue once A–E are solid.
 
 - [ ] Extract the relay adapters as their own published package.
 - [ ] Pluggable usage sources so Claude Code, Codex, or OpenCode logs can feed
       the same reconciliation engine.
-
-## Immediate implementation order
-
-1. SQLite rollup schema and the checkpoint store.
-2. Session discovery + incremental read against a real `$DSH_HOME`.
-3. Full-rebuild test: fold twice, assert identical totals.
-4. Pricing table and cost estimation.
-5. New API PAT adapter against recorded fixtures.
-6. Sub2API `/v1/usage` adapter against recorded fixtures.
-7. Reconciliation engine and its evidence levels.
-8. Only then the plugin wrapper and UI.

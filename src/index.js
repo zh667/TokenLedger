@@ -34,3 +34,16 @@ export {
 	domainOf,
 	normalizeOrigin
 } from "./relay-sites.js";
+
+export {
+	DEEPSEEK_OFF_PEAK,
+	RATE_BUCKETS,
+	RateTable,
+	defineRate,
+	definePeriod,
+	estimateCost,
+	inPeriod,
+	priceRows
+} from "./pricing.js";
+
+export { LedgerStore, SCHEMA_VERSION } from "./store.js";

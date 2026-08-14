@@ -12,6 +12,8 @@
     ".": "./src/index.js",
     "./usage": "./src/usage.js",
     "./relay-sites": "./src/relay-sites.js",
+    "./pricing": "./src/pricing.js",
+    "./store": "./src/store.js",
     "./package.json": "./package.json"
   },
   "files": [
