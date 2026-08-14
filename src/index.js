@@ -69,3 +69,12 @@ export {
 	detectRelaySoftware,
 	scoreFingerprint
 } from "./adapters/detect.js";
+
+export {
+	INCOMPARABLE,
+	LEVEL_ORDER,
+	describe,
+	reconcileAll,
+	reconcileSite,
+	relayLevel
+} from "./reconcile.js";

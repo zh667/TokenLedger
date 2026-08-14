@@ -14,6 +14,7 @@
     "./relay-sites": "./src/relay-sites.js",
     "./pricing": "./src/pricing.js",
     "./store": "./src/store.js",
+    "./reconcile": "./src/reconcile.js",
     "./adapters/newapi": "./src/adapters/newapi.js",
     "./adapters/sub2api": "./src/adapters/sub2api.js",
     "./adapters/detect": "./src/adapters/detect.js",
