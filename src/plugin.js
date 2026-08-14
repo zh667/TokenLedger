@@ -25,12 +25,46 @@
  * @module tokenledger/plugin
  */
 
-import { applyUsageDelta } from "./usage.js";
+import { applyUsageDelta, dayKey } from "./usage.js";
 import { RelaySiteRegistry, createSiteResolver } from "./relay-sites.js";
 import { LedgerStore } from "./store.js";
+import { RateTable, priceRows } from "./pricing.js";
+import { reconcileSite } from "./reconcile.js";
+import { renderReconciliation, renderReport } from "./report.js";
+
+/** `YYYY-MM-DD` for N days before today, in local time. */
+function dayKeyDaysAgo(daysBack) {
+	return dayKey(Date.now() - daysBack * 86_400_000);
+}
+
+/**
+ * Price the range with rates from configuration.
+ *
+ * Rates live in config rather than in code because a relay sets its own
+ * prices; shipping a table would be shipping one site's deal as everyone's.
+ */
+function priceWithConfiguredRates(store, range, site, rates) {
+	try {
+		const table = new RateTable(rates);
+		const day = range.to ?? range.from ?? dayKey(Date.now());
+		return priceRows(store.byModel(range, site), table, day);
+	} catch {
+		// A malformed rate table costs the cost column, not the report.
+		return null;
+	}
+}
 
 export const name = "tokenledger";
 
+/**
+ * Only the persistence seam is required.
+ *
+ * `commands` is deliberately absent: Cordis's `inject` has no optional form —
+ * it is a name list or a name→intercept map, and every entry is awaited — so
+ * declaring it would leave a composition without a command runtime pending
+ * forever. The optional-capability idiom in this codebase is `ctx.get(name)`,
+ * which returns the service or undefined without registering a dependency.
+ */
 export const inject = ["sessionPersistence"];
 
 /** Defaults chosen so an unconfigured mount still does something useful. */
@@ -125,6 +159,85 @@ export async function sweep(persistence, store, options = {}) {
 }
 
 /**
+ * Reconcile every configured site that has a billing reader wired.
+ *
+ * A site with no reader is reported through `reconcileSite` with a null relay,
+ * which already says "cannot compare". Omitting it, or inventing an agreeing
+ * row, would both read as a clean bill of health it has not earned.
+ */
+async function collectReconciliations(store, config, range, siteFilter, logger) {
+	const readers = config.billing ?? {};
+	const out = [];
+	for (const site of config.sites ?? []) {
+		if (siteFilter !== undefined && site.id !== siteFilter) continue;
+		const reader = readers[site.id];
+		let relay = null;
+		if (typeof reader === "function") {
+			try {
+				relay = await reader({ range });
+			} catch (error) {
+				logger?.warn?.("tokenledger: billing read for %s failed: %s", site.id, error?.message ?? error);
+			}
+		}
+		out.push(
+			reconcileSite({
+				site: site.id,
+				dsh: store.totals(range, site.id),
+				relay,
+				readerConfigured: typeof reader === "function",
+				window: range.from === undefined ? undefined : { from: range.from, to: range.to },
+				allTime: range.from === undefined
+			})
+		);
+	}
+	return out;
+}
+
+/**
+ * The `/tokenledger` command body, separated from its Cordis shell so it can be
+ * exercised against a real store without booting a harness.
+ *
+ * @param rawInput - text after the command name.
+ * @param deps - `{ store, config, sweep?, reindex?, logger? }`.
+ * @returns the report text.
+ */
+export async function runCommand(rawInput, deps) {
+	const { store, config = {}, sweep: doSweep, reindex, logger } = deps;
+	const args = String(rawInput ?? "").trim().split(/\s+/).filter(Boolean);
+
+	if (args[0] === "reindex") {
+		const stats = await reindex?.();
+		return `已重建索引：扫描 ${stats?.scanned ?? 0}，更新 ${stats?.updated ?? 0}，失败 ${stats?.failed ?? 0}。`;
+	}
+
+	// A report must not show figures the last sweep could already have improved,
+	// so a manual invocation sweeps first.
+	await doSweep?.();
+
+	const reconcileOnly = args[0] === "reconcile";
+	const rest = reconcileOnly ? args.slice(1) : args;
+	const days = Number.parseInt(rest[0] ?? "", 10);
+	const site = rest.find((a) => !/^\d+$/.test(a));
+	const range = Number.isFinite(days) && days > 0 ? { from: dayKeyDaysAgo(days - 1) } : {};
+
+	const reconciliations = await collectReconciliations(store, config, range, site, logger);
+	if (reconcileOnly) return renderReconciliation(reconciliations);
+
+	const byId = {};
+	for (const r of reconciliations) byId[r.site] = r;
+
+	return renderReport({
+		range,
+		days: store.byDay(range, site),
+		models: store.byModel(range, site),
+		sites: store.bySite(range),
+		reconciliations: byId,
+		priced: config.rates === undefined ? null : priceWithConfiguredRates(store, range, site, config.rates),
+		siteFilter: site
+	});
+}
+
+/**
  * Cordis plugin entry.
  *
  * Publishes `ctx.tokenLedger` so a UI row or a tool can read the index without
@@ -203,6 +316,34 @@ export function apply(ctx, userConfig = {}) {
 	} catch (error) {
 		logger?.warn?.("tokenledger: could not publish the service: %s", error?.message ?? error);
 	}
+
+	// `/tokenledger [days] [site]` — a report in the conversation stream. The
+	// command is a shell over the same queries the future UI page will use, so
+	// nothing here is throwaway when that page lands.
+	const commands = typeof ctx.get === "function" ? ctx.get("commands") : undefined;
+	if (commands !== undefined) {
+		try {
+			ctx.effect(function* () {
+				yield commands.register({
+					name: config.commandName ?? "tokenledger",
+					description: "Token usage by model and relay site, with billing reconciliation",
+					input: { hint: "[days] [site] | reconcile | reindex" },
+					handler: async (invocation) => {
+						try {
+							return { kind: "success", text: await handleCommand(invocation.rawInput ?? "") };
+						} catch (error) {
+							return { kind: "error", text: `tokenledger: ${error?.message ?? error}` };
+						}
+					}
+				});
+			}, "tokenledger command");
+		} catch (error) {
+			logger?.warn?.("tokenledger: could not register the command: %s", error?.message ?? error);
+		}
+	}
+
+	const handleCommand = (rawInput) =>
+		runCommand(rawInput, { store, config, sweep: runSweep, reindex: api.reindex, logger });
 
 	if (config.sweepOnStart) void runSweep();
 

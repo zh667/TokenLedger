@@ -19,7 +19,8 @@
     "./adapters/sub2api": "./src/adapters/sub2api.js",
     "./adapters/detect": "./src/adapters/detect.js",
     "./package.json": "./package.json",
-    "./plugin": "./src/plugin.js"
+    "./plugin": "./src/plugin.js",
+    "./report": "./src/report.js"
   },
   "files": [
     "src",

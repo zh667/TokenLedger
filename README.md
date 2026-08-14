@@ -65,7 +65,7 @@ byModel(days, {}, "nine"); // 只看某个站的模型分布
 
 ## 状态
 
-共 **102 个测试**，零运行时依赖（SQLite 用 Node 内置的 `node:sqlite`）。
+共 **121 个测试**，零运行时依赖（SQLite 用 Node 内置的 `node:sqlite`）。
 
 | 模块 | 状态 |
 |---|---|
@@ -83,7 +83,8 @@ byModel(days, {}, "nine"); // 只看某个站的模型分布
 | 对账引擎（证据等级 / 拒绝不可比） | ✅ |
 | 接真实 DSH 会话日志 | ✅ 已端到端验证 |
 | DSH 插件封装（`dsh.bundle` + Cordis 行） | ✅ 已在真实 DSH 里跑通 |
-| Web UI 页面 | ⬜ |
+| `/tokenledger` 报表命令 | ✅ |
+| 原生 settings 页面 | ⬜ 等客户端 API 出 rc |
 | 发 npm / 提交索引收录 | ⬜ |
 
 ### 作为 DSH 插件安装

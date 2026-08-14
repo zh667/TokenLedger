@@ -33,9 +33,21 @@ import { inputTotal } from "./usage.js";
 /** Evidence strength a comparison can carry, weakest first. */
 export const LEVEL_ORDER = Object.freeze(["none", "summary", "aggregate", "request"]);
 
-/** Reasons a pair cannot be compared at all. */
+/**
+ * Reasons a pair cannot be compared at all.
+ *
+ * Stable English identifiers: they are part of the API surface and callers key
+ * off them. Display translation belongs to the renderer, not here — a message
+ * that changes with a locale is not something a caller can branch on.
+ *
+ * `NO_READER` and `NO_BILLING` are deliberately distinct. "We could not
+ * identify this relay's software" and "you have not given us a way to read this
+ * relay's bills" are different problems with different fixes, and collapsing
+ * them tells the user to go debug the wrong one.
+ */
 export const INCOMPARABLE = Object.freeze({
 	NO_BILLING: "the relay software was not recognized, so there is no billing side to compare",
+	NO_READER: "no billing reader is configured for this site, so its own figures were never fetched",
 	WINDOW_MISMATCH: "the relay reports only a cumulative total, which cannot answer a windowed question",
 	NO_RELAY_DATA: "the relay returned no usable billing figures",
 	NO_DSH_DATA: "no DSH usage was recorded for this site in this window"
@@ -105,7 +117,12 @@ export function reconcileSite(input) {
 	};
 
 	if (relay === null || relay === undefined) {
-		return { ...base, level: "none", comparable: false, reason: INCOMPARABLE.NO_BILLING };
+		return {
+			...base,
+			level: "none",
+			comparable: false,
+			reason: input.readerConfigured === false ? INCOMPARABLE.NO_READER : INCOMPARABLE.NO_BILLING
+		};
 	}
 
 	const level = weaker(relayLevel(relay), "aggregate");

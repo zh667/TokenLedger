@@ -78,3 +78,7 @@ export {
 	reconcileSite,
 	relayLevel
 } from "./reconcile.js";
+
+export { compact, money, num, reasonText, renderReconciliation, renderReport, sparkline, table } from "./report.js";
+
+export { runCommand, sweep } from "./plugin.js";
