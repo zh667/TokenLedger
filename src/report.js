@@ -17,7 +17,7 @@
  * this report says that no other usage plugin does, and burying it in a
  * footnote would waste the whole design.
  *
- * @module tokenledger/report
+ * @module dsh-tokenledger/report
  */
 
 import { INCOMPARABLE } from "./reconcile.js";

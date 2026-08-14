@@ -43,7 +43,7 @@
  * with New API's quota conversion would produce a confident wrong number, which
  * is worse than an honest gap.
  *
- * @module tokenledger/adapters/detect
+ * @module dsh-tokenledger/adapters/detect
  */
 
 /** A route answering anything other than 404 is taken to exist. */

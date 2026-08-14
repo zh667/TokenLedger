@@ -25,7 +25,7 @@
  *
  * **A missing figure is null, never zero.** Zero is a measurement.
  *
- * @module tokenledger/reconcile
+ * @module dsh-tokenledger/reconcile
  */
 
 import { inputTotal } from "./usage.js";

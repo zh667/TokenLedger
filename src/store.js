@@ -23,7 +23,7 @@
  * dependencies. Node emits an ExperimentalWarning for it on v22; that is
  * upstream's warning to give, not ours to swallow.
  *
- * @module tokenledger/store
+ * @module dsh-tokenledger/store
  */
 
 import { DatabaseSync } from "node:sqlite";

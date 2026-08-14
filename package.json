@@ -1,5 +1,5 @@
 {
-  "name": "tokenledger",
+  "name": "dsh-tokenledger",
   "version": "0.0.1",
   "description": "Token usage accounting for DeepSeek Harness, reconciled against New API and Sub2API relay-site billing",
   "type": "module",

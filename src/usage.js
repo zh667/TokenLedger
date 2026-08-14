@@ -42,7 +42,7 @@
  *
  * Portions adapted from dsh-usage-stats (MIT). See NOTICE.
  *
- * @module tokenledger/usage
+ * @module dsh-tokenledger/usage
  */
 
 /** Route component used when DSH reported no provider, model, or site. */

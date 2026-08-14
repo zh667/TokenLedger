@@ -29,7 +29,7 @@
  * window, no per-model split, and no way to recompute a charge. Saying so is
  * the point; a comparison built on this must not claim more.
  *
- * @module tokenledger/adapters/sub2api
+ * @module dsh-tokenledger/adapters/sub2api
  */
 
 import { LEVELS } from "./newapi.js";

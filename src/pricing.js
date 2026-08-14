@@ -20,7 +20,7 @@
  *   information. Reporting it as free would silently understate a bill and is
  *   exactly the failure this project exists to catch.
  *
- * @module tokenledger/pricing
+ * @module dsh-tokenledger/pricing
  */
 
 /** Cost buckets a rate must price, in the order they are reported. */

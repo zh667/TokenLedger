@@ -25,8 +25,8 @@ TokenLedger 把 `(中转站, Provider, 模型)` 作为一等维度记录下来�
 ## 现在能用的部分
 
 ```js
-import { foldUsage, bySite, byModel } from "tokenledger";
-import { RelaySiteRegistry, createSiteResolver } from "tokenledger/relay-sites";
+import { foldUsage, bySite, byModel } from "dsh-tokenledger";
+import { RelaySiteRegistry, createSiteResolver } from "dsh-tokenledger/relay-sites";
 
 const registry = new RelaySiteRegistry([
   { id: "nine", type: "newapi",  baseUrl: "https://api.relay-one.example/v1" },
@@ -89,11 +89,18 @@ byModel(days, {}, "nine"); // 只看某个站的模型分布
 
 ### 作为 DSH 插件安装
 
+```bash
+# 尚未发布 npm；直接从 GitHub 装（dsh plugin 转发给 pnpm，支持 git 源）
+dsh plugin --profile web add github:zh667/TokenLedger
+```
+
+然后在 profile 的 patch 里挂上这一行：
+
 ```yaml
 # $DSH_HOME/profiles/<name>/cordis.patch.yml
 - insert:
     - id: tokenledger
-      name: 'tokenledger/plugin'
+      name: 'dsh-tokenledger/plugin'
       config:
         database: !!js dshHomePath('tokenledger.sqlite')
         sites:

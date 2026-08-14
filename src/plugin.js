@@ -22,7 +22,7 @@
  * written while the plugin was not running — a restart would silently under-
  * count. Sweeping is idempotent and self-healing; subscribing is neither.
  *
- * @module tokenledger/plugin
+ * @module dsh-tokenledger/plugin
  */
 
 import { applyUsageDelta, dayKey } from "./usage.js";

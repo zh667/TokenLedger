@@ -22,7 +22,7 @@
 
 - insert:
     - id: tokenledger
-      name: 'tokenledger/plugin'
+      name: 'dsh-tokenledger/plugin'
       config:
         database: !!js dshHomePath('tokenledger.sqlite')
         sweepIntervalMs: 60000

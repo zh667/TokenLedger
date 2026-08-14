@@ -59,7 +59,7 @@
  * A charge that no known convention reproduces is reported as **unexplained**,
  * not as an overcharge. See {@link verifyCharge}.
  *
- * @module tokenledger/adapters/newapi
+ * @module dsh-tokenledger/adapters/newapi
  */
 
 /** Log `type` for consumption rows. Other types are logins, top-ups, admin ops. */

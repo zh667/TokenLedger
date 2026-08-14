@@ -18,7 +18,7 @@
  *   usage fold stamps the site it resolved at the time, so historical rows keep
  *   pointing at the site that actually served them.
  *
- * @module tokenledger/relay-sites
+ * @module dsh-tokenledger/relay-sites
  */
 
 import { createHash } from "node:crypto";

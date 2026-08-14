@@ -1,7 +1,7 @@
 /**
  * TokenLedger public surface.
  *
- * @module tokenledger
+ * @module dsh-tokenledger
  */
 
 export {
