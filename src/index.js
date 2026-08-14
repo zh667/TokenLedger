@@ -47,3 +47,25 @@ export {
 } from "./pricing.js";
 
 export { LedgerStore, SCHEMA_VERSION } from "./store.js";
+
+export {
+	CONSUME_LOG_TYPE,
+	DEFAULT_QUOTA_PER_UNIT,
+	LEVELS,
+	NewApiClient,
+	normalizeRow,
+	quotaToMoney,
+	readQuotaUnits,
+	summarizeRows,
+	verifyCharge
+} from "./adapters/newapi.js";
+
+export { Sub2ApiClient, normalizeUsage } from "./adapters/sub2api.js";
+
+export {
+	GENERIC,
+	PROBE_PATHS,
+	SIGNATURES,
+	detectRelaySoftware,
+	scoreFingerprint
+} from "./adapters/detect.js";

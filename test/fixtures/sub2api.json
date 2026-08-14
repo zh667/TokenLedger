@@ -1,0 +1,59 @@
+{
+	"_source": "Recorded from a live Sub2API deployment on 2026-08-14 via GET /v1/usage with an API key. Balances and token counts are the real recorded values; no identifiers were present in the response to scrub.",
+	"_note": "daily_usage came back empty under every window parameter tried (days, start/end, start_date/end_date, detail). With an API key this deployment exposes cumulative totals and a today bucket and nothing else, which is why the adapter reports summary level.",
+
+	"usage": {
+		"balance": 4.76803348,
+		"daily_usage": [],
+		"isValid": true,
+		"mode": "unrestricted",
+		"planName": "钱包余额",
+		"remaining": 4.76803348,
+		"unit": "USD",
+		"usage": {
+			"average_duration_ms": 188231.5,
+			"rpm": 0,
+			"today": {
+				"actual_cost": 0,
+				"cache_creation_tokens": 0,
+				"cache_read_tokens": 0,
+				"cost": 0,
+				"input_tokens": 0,
+				"output_tokens": 0,
+				"requests": 0,
+				"total_tokens": 0
+			},
+			"total": {
+				"actual_cost": 0.231966525,
+				"cache_creation_tokens": 17107,
+				"cache_read_tokens": 325024,
+				"cost": 0.33138075,
+				"input_tokens": 0,
+				"output_tokens": 2478,
+				"requests": 2,
+				"total_tokens": 344609
+			},
+			"tpm": 0
+		}
+	},
+
+	"fingerprints": {
+		"_note": "Unauthenticated probe results measured on two live sites. 404 means the route does not exist in that program; 401 means it does and wants a credential.",
+		"sub2api": {
+			"/api/status": 404,
+			"/v1/usage": 401,
+			"/api/usage/token": 404,
+			"/api/log/self": 404,
+			"/api/v1/usage": 401,
+			"/api/data/self": 404
+		},
+		"newapi": {
+			"/api/status": 200,
+			"/v1/usage": 404,
+			"/api/usage/token": 401,
+			"/api/log/self": 401,
+			"/api/v1/usage": 404,
+			"/api/data/self": 401
+		}
+	}
+}
