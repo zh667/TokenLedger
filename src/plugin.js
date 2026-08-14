@@ -284,6 +284,7 @@ export async function runCommand(rawInput, deps) {
 		days: store.byDay(range, site),
 		models: store.byModel(range, site),
 		sites: store.bySite(range),
+		providers: store.byProvider(range, site),
 		reconciliations: byId,
 		priced: config.rates === undefined ? null : priceWithConfiguredRates(store, range, site, config.rates),
 		siteFilter: site

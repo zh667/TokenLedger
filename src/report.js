@@ -24,6 +24,9 @@ import { INCOMPARABLE } from "./reconcile.js";
 
 const DASH = "—";
 
+/** The route component the fold writes when DSH reported no provider. */
+const UNKNOWN_LABEL = "unknown";
+
 /**
  * Display text for the engine's stable reason identifiers.
  *
@@ -128,6 +131,7 @@ export function renderReport(input) {
 		models = [],
 		sites = [],
 		reconciliations = {},
+		providers = [],
 		priced = null,
 		siteFilter
 	} = input;
@@ -190,14 +194,28 @@ export function renderReport(input) {
 		out.push(`  ${DASH} 表示该模型没有配置费率，不是没花钱。未定价：${priced.unpricedModels.join("、")}`);
 	}
 
-	// Relay sites are the filter dimension, and where the evidence lives.
+	// Attribution has two levels. Provider routes are free — the name rides every
+	// record — so an unconfigured install still answers "where did it go". Relay
+	// sites are the configured grouping, and the only level that can carry
+	// billing evidence.
+	const configured = sites.some((s) => s.site !== "direct");
 	out.push("");
-	out.push("  中转站分布");
-	const siteRows = sites.map((s) => {
-		const r = reconciliations[s.site];
-		return [s.site === "direct" ? "直连/官方" : s.site, num(s.tokens), badge(r)];
-	});
-	out.push(...table([{ title: "" }, { title: "tokens", align: "right" }, { title: "" }], siteRows).slice(1).map((l) => `  ${l}`));
+	if (configured) {
+		out.push("  中转站分布");
+		const siteRows = sites.map((s) => {
+			const r = reconciliations[s.site];
+			return [s.site === "direct" ? "直连/官方" : s.site, num(s.tokens), badge(r)];
+		});
+		out.push(...table([{ title: "" }, { title: "tokens", align: "right" }, { title: "" }], siteRows).slice(1).map((l) => `  ${l}`));
+	} else if (providers.length > 0) {
+		out.push("  Provider 路由分布");
+		const rows = providers.map((p) => [p.provider === UNKNOWN_LABEL ? "未知路由" : p.provider, num(p.tokens)]);
+		out.push(...table([{ title: "" }, { title: "tokens", align: "right" }], rows).slice(1).map((l) => `  ${l}`));
+		out.push("");
+		out.push("  想把路由归到中转站并核对账单，在插件配置里加 `relays`（每个中转站一行）：");
+		out.push("    relays:");
+		out.push(`      ${providers[0].provider}: https://你的中转站域名/v1`);
+	}
 
 	// Anything the comparison refused to do is stated, not omitted.
 	const refused = Object.entries(reconciliations).filter(([, r]) => !r.comparable);
@@ -225,8 +243,15 @@ export function renderReport(input) {
 export function renderReconciliation(results) {
 	const out = [`── 对账 ${"─".repeat(40)}`, ""];
 	if (results.length === 0) {
-		out.push("  还没有配置任何中转站。");
-		out.push("  在插件配置里声明 `sites` 与 `providerBaseUrls` 后，用量才会带上站点归属。");
+		out.push("  还没有配置任何中转站，所以没有账单侧可比。");
+		out.push("");
+		out.push("  用量统计不受影响——`/tokenledger` 已经按 Provider 路由归属。");
+		out.push("  要对账，在插件配置里加 `relays`，每个中转站一行：");
+		out.push("");
+		out.push("    - id: tokenledger");
+		out.push("      config:");
+		out.push("        relays:");
+		out.push("          你的路由名: https://中转站域名/v1");
 		return out.join("\n");
 	}
 

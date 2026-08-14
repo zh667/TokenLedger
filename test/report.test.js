@@ -153,10 +153,42 @@ test("the reconciliation view shows both sides and the difference", () => {
 	assert.ok(text.includes("〔aggregate ✓〕"));
 });
 
-test("renderReconciliation with nothing configured says so", () => {
+test("renderReconciliation with nothing configured names the config that exists", () => {
 	const text = renderReconciliation([]);
 	assert.ok(text.includes("还没有配置任何中转站"));
-	assert.ok(text.includes("providerBaseUrls"));
+	assert.ok(text.includes("relays"), "must name a key the config actually has");
+	// Regression: it used to tell users to write `sites` and `providerBaseUrls`,
+	// which had already been removed — instructions for config that does nothing.
+	assert.equal(text.includes("providerBaseUrls"), false);
+	assert.equal(text.includes("`sites`"), false);
+	assert.ok(text.includes("用量统计不受影响"), "an unconfigured install is not a broken one");
+});
+
+test("with no relays configured the report shows provider routes, not a useless direct row", () => {
+	const text = renderReport({
+		range: {},
+		days: [{ day: "2026-08-14", tokens: 47_085, requests: 3 }],
+		models: [{ model: "deepseek-v4-pro", inputTokens: 27_492, cacheReadTokens: 18_560, outputTokens: 1033, cacheHitRate: 40.3 }],
+		sites: [{ site: "direct", tokens: 47_085 }],
+		providers: [{ provider: "deepseek-official", tokens: 47_085 }]
+	});
+	assert.ok(text.includes("Provider 路由分布"));
+	assert.ok(text.includes("deepseek-official"));
+	assert.equal(text.includes("中转站分布"), false, "one useless row is worse than the real breakdown");
+	assert.ok(text.includes("relays"), "and it says how to upgrade to site grouping");
+});
+
+test("once a relay is configured the site breakdown takes over", () => {
+	const text = renderReport({
+		range: {},
+		days: [{ day: "2026-08-14", tokens: 100, requests: 1 }],
+		models: [],
+		sites: [{ site: "api.relay-one.example", tokens: 90 }, { site: "direct", tokens: 10 }],
+		providers: [{ provider: "ninerelay", tokens: 90 }, { provider: "official", tokens: 10 }]
+	});
+	assert.ok(text.includes("中转站分布"));
+	assert.ok(text.includes("api.relay-one.example"));
+	assert.equal(text.includes("Provider 路由分布"), false);
 });
 
 // --- the command body, against a real store -------------------------------

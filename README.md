@@ -65,7 +65,7 @@ byModel(days, {}, "nine"); // 只看某个站的模型分布
 
 ## 状态
 
-共 **126 个测试**，零运行时依赖（SQLite 用 Node 内置的 `node:sqlite`）。
+共 **128 个测试**，零运行时依赖（SQLite 用 Node 内置的 `node:sqlite`）。
 
 | 模块 | 状态 |
 |---|---|
@@ -109,7 +109,9 @@ dsh plugin --profile web add github:zh667/TokenLedger
 
 **就这一条。** `dsh plugin` 转发给 pnpm；因为本包声明了 `dsh.bundle`，DSH 会自动把它登记进该 profile 的 `dsh.profile.bundles`，bundle patch 随即自动挂载插件行——不需要改 `package.json`，也不需要手写任何 YAML。
 
-零配置即可用：所有调用归到 `direct`，按天按模型的报表已经是对的。
+零配置即可用，而且**已经有归属**：报表按 Provider 路由分组，路由名本来就在每条用量记录里，不需要任何配置。
+
+配置 `relays` 是第二层——把多个路由归到同一个中转站，并解锁账单对账。基础归属不该等这一步。
 
 想要中转站维度，在该 profile 的 `cordis.patch.yml` 里加三行：
 

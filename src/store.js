@@ -326,6 +326,23 @@ export class LedgerStore {
 			.sort((a, b) => b.tokens - a.tokens);
 	}
 
+	/**
+	 * Per-provider-route totals.
+	 *
+	 * Always available with no configuration at all, because the route name
+	 * rides every usage record. Grouping routes into relay sites is a separate,
+	 * optional step that exists for billing reconciliation — basic attribution
+	 * should not have to wait for it.
+	 */
+	byProvider(range = {}, site = undefined) {
+		const { sql, params } = rangeClause(range, site);
+		return this.#db
+			.prepare(`SELECT provider, ${SUMS} FROM session_rollups ${sql} GROUP BY provider`)
+			.all(...params)
+			.map(decorate)
+			.sort((a, b) => b.tokens - a.tokens);
+	}
+
 	/** Full route breakdown, for export and drill-down. */
 	byRoute(range = {}, site = undefined) {
 		const { sql, params } = rangeClause(range, site);
