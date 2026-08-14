@@ -1,0 +1,28 @@
+TokenLedger
+Copyright (c) 2026 TokenLedger contributors
+
+This product includes software developed by the dsh-usage-stats project.
+
+  dsh-usage-stats — https://github.com/Ychris12138/dsh-usage-stats
+  Copyright (c) 2026 dsh-usage-stats contributors
+  Licensed under the MIT License.
+
+`src/usage.js` adapts the per-day, per-model token-usage fold from
+`dsh-usage-stats/lib/usage.js`, retaining its dual-source sampling
+(`assistant/chunk` + `assistant/message`), its same-(turn, step) replacement
+semantics, and its `message.source` → `request/header` route attribution.
+TokenLedger extends that fold with a relay-site dimension, reasoning-token and
+request counting, disjoint-bucket billed totals, and range/site queries.
+
+This product's understanding of the DSH event contract is derived from the
+published type declarations of the following MIT-licensed packages, which are
+not redistributed here:
+
+  @deepseek-ai/dsh-llm
+  @deepseek-ai/dsh-session
+  @deepseek-ai/dsh-session-persistence
+  @deepseek-ai/dsh-token-meter
+
+"DeepSeek" and related marks belong to their respective owners. TokenLedger is
+an independent third-party project with no affiliation with, sponsorship by, or
+endorsement from DeepSeek.

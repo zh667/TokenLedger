@@ -1,0 +1,37 @@
+{
+  "name": "tokenledger",
+  "version": "0.0.1",
+  "description": "Token usage accounting for DeepSeek Harness, reconciled against New API and Sub2API relay-site billing",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zh667/TokenLedger.git"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./usage": "./src/usage.js",
+    "./relay-sites": "./src/relay-sites.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "LICENSE",
+    "NOTICE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "token-usage",
+    "billing",
+    "newapi",
+    "sub2api"
+  ]
+}
