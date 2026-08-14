@@ -239,10 +239,49 @@ the origin to a relay. `createSiteResolver` needs no guessing.
 the default profile, so Track C's credential-store requirement has an existing
 seam rather than needing a new one.
 
-Still unverified, because it needs a provider credential and a real session:
-that the collector reads an actual `$DSH_HOME/sessions` log correctly end to
-end. Every fold assumption is tested against synthetic events shaped from the
-published type declarations, which is not the same thing.
+**Session logs are zstd, and not in one piece.** `$DSH_HOME/sessions/<encoded
+cwd>/session-<uuid>/session.jsonl.zstd`, written as **multiple concatenated
+zstd frames** — one per flush, which is how an append-only log stays
+compressed. A single `zstdDecompressSync` decodes only the first frame and
+silently returns a fraction of the log: an 11.9 KB file appeared to hold one
+line. Anything parsing these files directly must scan for the `28 B5 2F FD`
+frame magic and decode each frame. This is a good reason not to parse them
+directly at all — `sessionPersistence.readFrom()` is the supported seam and
+compression is DSH's business, not the collector's.
+
+## End-to-end verification on real data
+
+Ran on 2026-08-14 against a real DSH session and a real New API relay. Not a
+fixture: a live agent turn billed to a live account.
+
+```text
+1. detect      api.<relay> -> newapi (confidence 1)        no credential used
+2. fold        real session log -> input=10119 output=26 requests=1
+3. relay       charged 8991 quota (0.131269 CNY)
+               recomputed from its own ratios: 8991, delta=0, variant=openai
+4. reconcile   level=aggregate, token deltas all 0
+               charged 0.1312686 CNY vs estimate 0.131263 CNY (+0.000006)
+```
+
+What each step proves:
+
+- The event shapes are as assumed. `request/header.config` carried
+  `{provider, model}`; `assistant/message.source` carried
+  `{kind:'model', provider, model, replayState}`; usage arrived as
+  `{inputTokens, outputTokens}`.
+- **The replacement rule fires on real traffic.** The same `(turn, step) 1/1`
+  was reported twice — once on an `assistant/chunk`, once on the
+  `assistant/message` — and the fold recorded `requests: 1`, not 2. This is the
+  double-count the design exists to prevent, and it occurs on an ordinary turn,
+  not an edge case.
+- Site attribution works off the DSH composition: route `ninerelay` → its
+  configured `baseURL` → registered site.
+- A from-scratch rebuild produced byte-identical rows, with zero unattributed.
+- The relay's own record of the same call agreed exactly on both token figures,
+  and its charge was reproduced independently from the ratios it published.
+
+The residual 0.000006 CNY is this test's hand-built rate table rounding, not a
+discrepancy at the relay.
 
 ## Track A — persistence
 
