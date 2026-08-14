@@ -147,12 +147,12 @@ test("reset clears everything so the next pass rebuilds from seq 0", () => {
 test("queries group by day, model, and site, and the site filter narrows them", () => {
 	withStore((store) => {
 		const registry = new RelaySiteRegistry([
-			{ id: "nine", type: "newapi", baseUrl: "https://api.9zyx.xyz" },
-			{ id: "sub", type: "sub2api", baseUrl: "https://sub.example.com" }
+			{ id: "nine", type: "newapi", baseUrl: "https://api.relay-one.example" },
+			{ id: "sub", type: "sub2api", baseUrl: "https://api.relay-two.example" }
 		]);
 		const resolveSite = createSiteResolver(registry, {
-			relayA: "https://api.9zyx.xyz/v1",
-			relayB: "https://sub.example.com/v1",
+			relayA: "https://api.relay-one.example/v1",
+			relayB: "https://api.relay-two.example/v1",
 			official: "https://api.deepseek.com"
 		});
 		const state = { days: new Map(), lastSample: null, currentRoute: null, consumedSeq: -1 };

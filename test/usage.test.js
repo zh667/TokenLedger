@@ -167,12 +167,12 @@ test("a resume header restates the route without creating a new one", () => {
 
 test("relay sites are resolved at fold time and split the routes", () => {
 	const registry = new RelaySiteRegistry([
-		{ id: "nine", type: "newapi", baseUrl: "https://api.9zyx.xyz/v1" },
-		{ id: "sub", type: "sub2api", baseUrl: "https://sub.example.com" }
+		{ id: "nine", type: "newapi", baseUrl: "https://api.relay-one.example/v1" },
+		{ id: "sub", type: "sub2api", baseUrl: "https://api.relay-two.example" }
 	]);
 	const resolveSite = createSiteResolver(registry, {
-		relayA: "https://API.9zyx.xyz:443/v1/chat",
-		relayB: "https://sub.example.com/v1",
+		relayA: "https://API.relay-one.example:443/v1/chat",
+		relayB: "https://api.relay-two.example/v1",
 		official: "https://api.deepseek.com"
 	});
 
@@ -200,8 +200,8 @@ test("relay sites are resolved at fold time and split the routes", () => {
 });
 
 test("sumRange honours inclusive bounds and the site filter", () => {
-	const registry = new RelaySiteRegistry([{ id: "nine", type: "newapi", baseUrl: "https://api.9zyx.xyz" }]);
-	const resolveSite = createSiteResolver(registry, { relayA: "https://api.9zyx.xyz" });
+	const registry = new RelaySiteRegistry([{ id: "nine", type: "newapi", baseUrl: "https://api.relay-one.example" }]);
+	const resolveSite = createSiteResolver(registry, { relayA: "https://api.relay-one.example" });
 	const byDay = new Map();
 	mergeInto(byDay, foldUsage([message(1, 1, "relayA", "v4", usage(100, 10), DAY_A)], { resolveSite }));
 	mergeInto(byDay, foldUsage([message(1, 1, "relayA", "v4", usage(200, 20), DAY_B)], { resolveSite }));

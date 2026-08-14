@@ -1,0 +1,160 @@
+{
+	"_source": "Recorded from a live New API deployment on 2026-08-14. Identifiers, IPs, usernames and request ids are scrubbed.",
+	"_provenance": {
+		"logSelf.items[0..1]": "Real recorded rows, verbatim token counts, quota and ratios. The billing-formula assertions rest on these.",
+		"logSelf.items[2]": "SYNTHETIC. Constructed to cover a second model, a streamed request and a group_ratio of 1, with ratios chosen so the real formula reproduces its quota. Do not cite it as evidence the formula matches production.",
+		"status/userSelf/dataSelf": "Real recorded values.",
+		"formulaCheck": "The formula was verified against 300 consecutive real ratio-priced rows with zero mismatches on 2026-08-14."
+	},
+
+	"status": {
+		"success": true,
+		"data": {
+			"quota_per_unit": 500000,
+			"display_in_currency": true,
+			"quota_display_type": "CNY",
+			"price": 7.3,
+			"usd_exchange_rate": 1
+		}
+	},
+
+	"userSelf": {
+		"success": true,
+		"data": {
+			"id": 1,
+			"username": "user",
+			"group": "default",
+			"quota": 85616085,
+			"used_quota": 14383915,
+			"request_count": 1925
+		}
+	},
+
+	"logSelf": {
+		"success": true,
+		"data": {
+			"page": 1,
+			"page_size": 3,
+			"total": 1960,
+			"items": [
+				{
+					"id": 1,
+					"user_id": 1,
+					"created_at": 1786634961,
+					"type": 2,
+					"content": "",
+					"username": "user",
+					"token_name": "token-1",
+					"model_name": "gpt-5.6-sol",
+					"quota": 11646,
+					"prompt_tokens": 12416,
+					"completion_tokens": 149,
+					"use_time": 7,
+					"is_stream": false,
+					"channel": 1,
+					"channel_name": "",
+					"token_id": 1,
+					"group": "gpt",
+					"ip": "",
+					"request_id": "req-1",
+					"upstream_request_id": "upstream-1",
+					"other": "{\"billing_source\":\"wallet\",\"cache_ratio\":1,\"cache_tokens\":11776,\"completion_ratio\":6,\"frt\":-1000,\"group_ratio\":0.35,\"model_price\":-1,\"model_ratio\":2.5,\"request_conversion\":[\"OpenAI Compatible\"],\"request_path\":\"/v1/chat/completions\",\"user_group_ratio\":-1}"
+				},
+				{
+					"id": 2,
+					"user_id": 1,
+					"created_at": 1786634954,
+					"type": 2,
+					"content": "",
+					"username": "user",
+					"token_name": "token-1",
+					"model_name": "gpt-5.6-sol",
+					"quota": 11953,
+					"prompt_tokens": 12371,
+					"completion_tokens": 215,
+					"use_time": 7,
+					"is_stream": false,
+					"channel": 1,
+					"channel_name": "",
+					"token_id": 1,
+					"group": "gpt",
+					"ip": "",
+					"request_id": "req-2",
+					"upstream_request_id": "upstream-2",
+					"other": "{\"billing_source\":\"wallet\",\"cache_ratio\":1,\"cache_tokens\":0,\"completion_ratio\":6,\"frt\":-1000,\"group_ratio\":0.35,\"model_price\":-1,\"model_ratio\":2.5,\"request_conversion\":[\"OpenAI Compatible\"],\"request_path\":\"/v1/chat/completions\",\"user_group_ratio\":-1}"
+				},
+				{
+					"id": 3,
+					"user_id": 1,
+					"created_at": 1785996000,
+					"type": 2,
+					"content": "",
+					"username": "user",
+					"token_name": "token-2",
+					"model_name": "claude-sonnet-4-6",
+					"quota": 425,
+					"prompt_tokens": 50,
+					"completion_tokens": 8,
+					"use_time": 3,
+					"is_stream": true,
+					"channel": 2,
+					"channel_name": "",
+					"token_id": 2,
+					"group": "default",
+					"ip": "",
+					"request_id": "req-3",
+					"upstream_request_id": "upstream-3",
+					"other": "{\"billing_source\":\"wallet\",\"cache_ratio\":1,\"cache_tokens\":0,\"completion_ratio\":5,\"frt\":-1000,\"group_ratio\":1,\"model_price\":-1,\"model_ratio\":4.7222222222,\"request_conversion\":[\"OpenAI Compatible\"],\"request_path\":\"/v1/messages\",\"user_group_ratio\":-1}"
+				}
+			]
+		}
+	},
+
+	"dataSelf": {
+		"success": true,
+		"data": [
+			{
+				"id": 0,
+				"user_id": 1,
+				"username": "user",
+				"model_name": "gpt-5.6-sol",
+				"created_at": 1786446000,
+				"use_group": "",
+				"token_id": 0,
+				"channel_id": 0,
+				"node_name": "",
+				"token_used": 1221884,
+				"count": 102,
+				"quota": 1105612
+			},
+			{
+				"id": 0,
+				"user_id": 1,
+				"username": "user",
+				"model_name": "gpt-5.6-sol",
+				"created_at": 1786330800,
+				"use_group": "",
+				"token_id": 0,
+				"channel_id": 0,
+				"node_name": "",
+				"token_used": 150936,
+				"count": 17,
+				"quota": 140463
+			},
+			{
+				"id": 0,
+				"user_id": 1,
+				"username": "user",
+				"model_name": "claude-sonnet-4-6",
+				"created_at": 1785996000,
+				"use_group": "",
+				"token_id": 0,
+				"channel_id": 0,
+				"node_name": "",
+				"token_used": 58,
+				"count": 2,
+				"quota": 425
+			}
+		]
+	}
+}

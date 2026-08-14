@@ -29,13 +29,13 @@ import { foldUsage, bySite, byModel } from "tokenledger";
 import { RelaySiteRegistry, createSiteResolver } from "tokenledger/relay-sites";
 
 const registry = new RelaySiteRegistry([
-  { id: "nine", type: "newapi",  baseUrl: "https://api.9zyx.xyz/v1" },
-  { id: "sub",  type: "sub2api", baseUrl: "https://sub.example.com" },
+  { id: "nine", type: "newapi",  baseUrl: "https://api.relay-one.example/v1" },
+  { id: "sub",  type: "sub2api", baseUrl: "https://api.relay-two.example" },
 ]);
 
 // DSH 的 provider 路由 → 它配置的 Base URL
 const resolveSite = createSiteResolver(registry, {
-  relayA:   "https://api.9zyx.xyz/v1/chat",
+  relayA:   "https://api.relay-one.example/v1/chat",
   official: "https://api.deepseek.com",
 });
 
@@ -65,7 +65,7 @@ byModel(days, {}, "nine"); // 只看某个站的模型分布
 
 ## 状态
 
-共 **40 个测试**，零运行时依赖（SQLite 用 Node 内置的 `node:sqlite`）。
+共 **63 个测试**，零运行时依赖（SQLite 用 Node 内置的 `node:sqlite`）。
 
 | 模块 | 状态 |
 |---|---|
@@ -77,10 +77,27 @@ byModel(days, {}, "nine"); // 只看某个站的模型分布
 | 费率表（生效日期 / 分桶计价 / 峰谷时段） | ✅ |
 | 费用估算（未定价返回 null 而非 0） | ✅ |
 | CSV / JSON 导出与索引诊断 | ✅ |
-| New API 账单适配器 | ⬜ |
-| Sub2API 账单适配器 | ⬜ |
+| New API 适配器（余额 / 聚合 / 请求级 + 扣费复算） | ✅ |
+| Sub2API 适配器 | ⬜ |
 | 对账引擎（三级证据） | ⬜ |
 | DSH 插件封装与 Web UI 页面 | ⬜ |
+
+### New API 适配器的实测结果
+
+对一个真实运行的 New API 站点验证过（2026-08-14，只读）：**1960 条消费记录，全部能用记录自带的比率独立复算出扣费，0 条无法解释。**
+
+```
+按计费约定匹配：openai 1415 · anthropic 535 · 仅兜底 10
+请求级合计 quota 14,504,892  ==  聚合端点合计 14,504,892（两个独立端点互证）
+```
+
+复算公式（比率全部来自记录本身）：
+
+```
+quota = round( (有效输入 + 输出×completion_ratio) × model_ratio × group_ratio )
+```
+
+「有效输入」正是坑所在——**同一个站点存在两种语义**：OpenAI 系的 `prompt_tokens` **包含**缓存，Anthropic 系的**不含**且缓存创建单独计价。用错约定会算出**负数**。
 
 路线见 [`docs/ROADMAP.md`](docs/ROADMAP.md)。
 
