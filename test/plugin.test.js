@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { sweep } from "../src/plugin.js";
+import { normalizeRelayConfig, sweep } from "../src/plugin.js";
 import { LedgerStore } from "../src/store.js";
 import { RelaySiteRegistry, createSiteResolver } from "../src/relay-sites.js";
 
@@ -188,4 +188,64 @@ test("the dsh version is stamped on the checkpoint", async () => {
 		assert.equal(store.checkpointFor("s1").dshVersion, "0.1.0-rc.6");
 		assert.equal(store.checkpointFor("s1").logRevision, "r1");
 	});
+});
+
+// --- relay config normalization -------------------------------------------
+
+test("one line per relay yields a site, a route map, and a resolver", async () => {
+	const { sites, providerBaseUrls, resolveSite } = normalizeRelayConfig({
+		relays: { ninerelay: "https://api.relay-one.example/v1" }
+	});
+	assert.equal(sites.length, 1);
+	assert.equal(sites[0].id, "api.relay-one.example", "the id is the exact domain, which is what reports show");
+	assert.equal(sites[0].type, undefined, "type is fingerprinted later, not typed by hand");
+	assert.deepEqual(providerBaseUrls, { ninerelay: "https://api.relay-one.example/v1" });
+	assert.equal(resolveSite("ninerelay"), "api.relay-one.example");
+	assert.equal(resolveSite("something-else"), undefined);
+});
+
+test("two routes on one relay collapse to a single site", async () => {
+	// A key per model group is normal; they share one invoice and must not
+	// produce two rows for it.
+	const { sites, resolveSite } = normalizeRelayConfig({
+		relays: {
+			gptroute: "https://api.relay-one.example/v1",
+			clauderoute: "https://api.relay-one.example/v1"
+		}
+	});
+	assert.equal(sites.length, 1);
+	assert.equal(resolveSite("gptroute"), resolveSite("clauderoute"));
+});
+
+test("the long form overrides the derived id and type", async () => {
+	const { sites, resolveSite } = normalizeRelayConfig({
+		relays: {
+			r: { baseUrl: "https://api.relay-two.example", id: "my-label", type: "sub2api" }
+		}
+	});
+	assert.equal(sites[0].id, "my-label");
+	assert.equal(sites[0].type, "sub2api");
+	assert.equal(resolveSite("r"), "my-label");
+});
+
+test("no relays configured means no resolver, and everything is direct", async () => {
+	const { sites, resolveSite } = normalizeRelayConfig({});
+	assert.deepEqual(sites, []);
+	assert.equal(resolveSite, undefined);
+
+	await withStore(async (store) => {
+		const sessions = new Map([
+			["s1", { revision: "r1", events: [header("p", "m"), message(1, 1, "p", "m", { inputTokens: 5, outputTokens: 1 })] }]
+		]);
+		await sweep(fakePersistence(sessions), store, { resolveSite });
+		assert.deepEqual(store.bySite().map((s) => s.site), ["direct"], "still a correct report, just no site dimension");
+	});
+});
+
+test("a malformed relay entry is skipped rather than poisoning the map", async () => {
+	const { sites, providerBaseUrls } = normalizeRelayConfig({
+		relays: { good: "https://api.relay-one.example", bad: "", worse: null, alsoBad: {} }
+	});
+	assert.equal(sites.length, 1);
+	assert.deepEqual(Object.keys(providerBaseUrls), ["good"]);
 });

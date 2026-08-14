@@ -26,7 +26,8 @@
  */
 
 import { applyUsageDelta, dayKey } from "./usage.js";
-import { RelaySiteRegistry, createSiteResolver } from "./relay-sites.js";
+import { RelaySiteRegistry, SITE_TYPES, createSiteResolver, domainOf } from "./relay-sites.js";
+import { detectRelaySoftware } from "./adapters/detect.js";
 import { LedgerStore } from "./store.js";
 import { RateTable, priceRows } from "./pricing.js";
 import { reconcileSite } from "./reconcile.js";
@@ -75,18 +76,69 @@ const DEFAULTS = {
 };
 
 /**
- * Build the site resolver from configuration.
+ * Turn the `relays` config into sites and a route→origin map.
  *
- * `providerBaseUrls` normally mirrors the `dsh-llm-pi-ai` row's
- * `config.providers[route].baseURL`. It is passed in rather than read out of
- * the live composition so the collector keeps working when the model route is
- * supplied by some other adapter.
+ * One entry per relay, keyed by the DSH provider route it serves:
+ *
+ * ```yaml
+ * relays:
+ *   my-route: https://relay.example.com/v1
+ * ```
+ *
+ * An earlier design asked for the same domain twice — once under `sites` and
+ * once under `providerBaseUrls` — plus a hand-written `type`. That is three
+ * chances to disagree with yourself and a silent drift every time a provider's
+ * base URL changes in the composition but not here. The route is the only
+ * thing the user actually knows that this code cannot; everything else is
+ * derived.
+ *
+ * The site id defaults to the exact domain, which is what the reports are
+ * supposed to show anyway. `type` is left undefined and filled in later by
+ * fingerprinting; a longer object form exists for anyone who wants to override
+ * either.
+ *
+ * @returns `{ sites, providerBaseUrls, resolveSite }`, with `resolveSite`
+ *   undefined when nothing is configured — which attributes everything to
+ *   `direct` and still produces a correct per-model report.
  */
-function buildResolver(config) {
-	const sites = config.sites ?? [];
-	if (sites.length === 0) return undefined;
-	const registry = new RelaySiteRegistry(sites);
-	return createSiteResolver(registry, config.providerBaseUrls ?? {});
+export function normalizeRelayConfig(config = {}) {
+	const entries = Object.entries(config.relays ?? {});
+	if (entries.length === 0) return { sites: [], providerBaseUrls: {}, resolveSite: undefined };
+
+	const sites = [];
+	const providerBaseUrls = {};
+	const seen = new Map();
+
+	for (const [route, value] of entries) {
+		const spec = typeof value === "string" ? { baseUrl: value } : (value ?? {});
+		const baseUrl = spec.baseUrl;
+		if (typeof baseUrl !== "string" || baseUrl === "") continue;
+		providerBaseUrls[route] = baseUrl;
+
+		const domain = domainOf(baseUrl);
+		const id = spec.id ?? domain ?? route;
+		// Two routes may point at one relay — a key per model group is common.
+		// They must collapse to one site, not two rows for the same invoice.
+		if (seen.has(id)) continue;
+		seen.set(id, true);
+		sites.push({
+			id,
+			// `type` is not required up front: SITE_TYPES rejects undefined, so an
+			// unfingerprinted site is registered as newapi-shaped only once
+			// detection says so. Until then it exists purely for attribution.
+			type: spec.type,
+			baseUrl,
+			displayName: spec.displayName,
+			credentialReference: spec.credentialReference
+		});
+	}
+
+	// Attribution needs only the origin match, so a site whose software is not
+	// yet known is still usable here.
+	const registry = new RelaySiteRegistry(
+		sites.map((s) => ({ ...s, type: s.type ?? SITE_TYPES[0] }))
+	);
+	return { sites, providerBaseUrls, resolveSite: createSiteResolver(registry, providerBaseUrls) };
 }
 
 /**
@@ -167,8 +219,9 @@ export async function sweep(persistence, store, options = {}) {
  */
 async function collectReconciliations(store, config, range, siteFilter, logger) {
 	const readers = config.billing ?? {};
+	const configuredSites = config.sites ?? normalizeRelayConfig(config).sites;
 	const out = [];
-	for (const site of config.sites ?? []) {
+	for (const site of configuredSites) {
 		if (siteFilter !== undefined && site.id !== siteFilter) continue;
 		const reader = readers[site.id];
 		let relay = null;
@@ -257,7 +310,22 @@ export function apply(ctx, userConfig = {}) {
 		return;
 	}
 
-	const resolveSite = buildResolver(config);
+	const relays = normalizeRelayConfig(config);
+	const resolveSite = relays.resolveSite;
+
+	// Fingerprint each configured relay once, in the background. It costs a few
+	// unauthenticated HEAD-ish GETs and saves the user from typing a `type` they
+	// would have to look up. A failure leaves the type unknown, which only
+	// affects which billing adapter could later be offered — never attribution.
+	for (const site of relays.sites) {
+		if (site.type !== undefined) continue;
+		void detectRelaySoftware(site.baseUrl)
+			.then((result) => {
+				site.type = result.billingAvailable ? result.software : undefined;
+				logger?.info?.("tokenledger: %s looks like %s (confidence %s)", site.id, result.software, result.confidence);
+			})
+			.catch((error) => logger?.warn?.("tokenledger: could not fingerprint %s: %s", site.id, error?.message ?? error));
+	}
 	let running = false;
 
 	const runSweep = async () => {
