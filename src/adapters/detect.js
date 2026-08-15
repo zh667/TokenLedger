@@ -192,5 +192,51 @@ export async function detectRelaySoftware(origin, options = {}) {
 		})
 	);
 
-	return { origin: base, statuses, ...scoreFingerprint(statuses) };
+	const scored = scoreFingerprint(statuses);
+	if (scored.billingAvailable) return { origin: base, statuses, ...scored };
+	// A failure to match is not automatically "this origin runs nothing we know".
+	// Two common situations produce exactly the same empty score while meaning
+	// something quite different, and both are actionable where the generic answer
+	// is not.
+	return { origin: base, statuses, ...scored, ...diagnoseMiss(statuses) };
+}
+
+/** `path=status` pairs, compact enough to put in a one-line reason. */
+export function summarizeProbes(statuses) {
+	return Object.entries(statuses)
+		.map(([path, status]) => `${path}=${status === 0 ? "×" : status}`)
+		.join(" ");
+}
+
+/**
+ * Explain a score that matched nothing.
+ *
+ * The scorer only sees a status table, so every miss reads alike. But a table
+ * of transport failures means the origin was never reached, and a table where
+ * every route answers identically means the probe cannot discriminate — a WAF
+ * or login wall answering 403 everywhere makes each signature's "this route
+ * must NOT exist" test fail, disqualifying all of them. Reporting either as
+ * "no known relay program recognized at this origin" claims more than the
+ * evidence supports, and sends the reader looking for the wrong problem.
+ *
+ * @param statuses - `{ [path]: httpStatus }`, 0 for a transport failure.
+ * @returns fields to merge over the generic result, always including the
+ *   observed table so the reason can be checked rather than trusted.
+ */
+export function diagnoseMiss(statuses) {
+	const values = Object.values(statuses);
+	const summary = summarizeProbes(statuses);
+	if (values.length === 0) return { reason: "没有探测任何路由" };
+
+	if (values.every((s) => s === 0)) {
+		return { unreachable: true, reason: `连不上这个 origin——每个探测请求都在传输层失败（${summary}）` };
+	}
+	const distinct = new Set(values);
+	if (distinct.size === 1) {
+		return {
+			undiscriminating: true,
+			reason: `所有探测路由都返回 ${[...distinct][0]}，无法区分是哪套程序——通常是 WAF 或登录墙挡在前面（${summary}）`
+		};
+	}
+	return { reason: `没有匹配到已知的中转站程序（${summary}）` };
 }

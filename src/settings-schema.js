@@ -87,5 +87,26 @@ export async function registerNamespace(settings, base, onChange) {
 	const value = scope.get();
 	onChange?.(value);
 	scope.watch?.((next) => onChange?.(next));
-	return { scope, value };
+	return { scope, value, remove: (route) => removeRelay(settings, route) };
+}
+
+/**
+ * Delete one relay entry.
+ *
+ * **`update` cannot do this.** It deep-merges its patch into the user section,
+ * so handing it a map with the entry left out changes nothing — the command
+ * reported success while the relay stayed in the listing, which is exactly what
+ * a real install showed. Upstream names `mutate` as the removal path, and the
+ * `unset` op is the only one that names a key to drop rather than a shape to
+ * merge. It lives on the service rather than on the registration scope, which
+ * carries only `get`/`watch`/`update`.
+ *
+ * @param settings - the settings service.
+ * @param route - the relay's provider-route key.
+ */
+export async function removeRelay(settings, route) {
+	if (typeof settings.mutate !== "function") {
+		throw new Error("这个 settings 服务没有 mutate，删不了单个键");
+	}
+	await settings.mutate(NAMESPACE, [{ op: "unset", path: ["relays", route] }]);
 }

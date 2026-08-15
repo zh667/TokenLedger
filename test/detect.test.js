@@ -192,3 +192,54 @@ test("key validity and plan are carried, since an exhausted key still answers 20
 	assert.equal(fact.plan.mode, "unrestricted");
 	assert.equal(normalizeUsage({ ...FIXTURE.usage, isValid: false }).keyValid, false);
 });
+
+// --- telling the three kinds of miss apart -----------------------------------
+
+test("an origin that answers nothing is reported unreachable, not unrecognized", async () => {
+	// The scorer only sees a status table, and a transport failure is recorded as
+	// 0 precisely so it is not mistaken for a 404. But the generic verdict then
+	// said "no known relay program recognized at this origin" — a claim about the
+	// origin's software made without ever having reached it.
+	const result = await detectRelaySoftware("https://unreachable.example", {
+		fetch: async () => {
+			throw new Error("getaddrinfo ENOTFOUND");
+		}
+	});
+	assert.equal(result.unreachable, true);
+	assert.ok(result.reason.includes("连不上"));
+	assert.equal(result.billingAvailable, false, "an unreachable origin still offers no billing");
+});
+
+test("a wall answering identically everywhere is reported as undiscriminating", async () => {
+	// This is what disqualifies BOTH signatures at once: each one requires some
+	// route to be ABSENT, and a 403 on everything makes every route look present.
+	// The result is an empty score that reads as "nothing we know runs here",
+	// when the truth is that the probe never got to see anything.
+	const result = await detectRelaySoftware("https://walled.example", {
+		fetch: async () => ({ status: 403 })
+	});
+	assert.equal(result.undiscriminating, true);
+	assert.ok(result.reason.includes("403"));
+	assert.ok(result.reason.includes("WAF") || result.reason.includes("登录墙"));
+	assert.equal(result.billingAvailable, false);
+});
+
+test("a genuine miss still says so, and shows the table it judged", async () => {
+	const result = await detectRelaySoftware("https://plain.example", {
+		fetch: async (url) => ({ status: String(url).endsWith("/api/status") ? 200 : 404 })
+	});
+	assert.equal(result.unreachable, undefined);
+	assert.equal(result.undiscriminating, undefined);
+	assert.ok(result.reason.includes("没有匹配到"));
+	assert.ok(result.reason.includes("/api/status=200"), "the evidence must be checkable, not just asserted");
+});
+
+test("a clean match is not decorated with a diagnosis it does not need", async () => {
+	const result = await detectRelaySoftware("https://relay.example", {
+		fetch: async (url) => ({ status: /\/v1\/usage$/.test(String(url)) ? 404 : 200 })
+	});
+	assert.equal(result.software, "newapi");
+	assert.equal(result.billingAvailable, true);
+	assert.equal(result.unreachable, undefined);
+	assert.equal(result.undiscriminating, undefined);
+});

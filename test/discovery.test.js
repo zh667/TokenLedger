@@ -468,23 +468,47 @@ test("`site add` without both arguments prints usage instead of guessing", async
 	}
 });
 
-test("`site rm` removes a manual entry and refuses to pretend it can remove a discovered one", async () => {
+test("`site rm` deletes through the unset path, not by re-saving a shrunken map", async () => {
+	// The bug a real install showed: rm reported success and the relay stayed in
+	// the listing. `update()` DEEP-MERGES its patch, so handing it a map with the
+	// key left out is not a deletion — it is a no-op that looks like one.
+	// Upstream's removal path is `mutate` with an `unset` op, which names the key
+	// to drop instead of a shape to merge.
 	const store = emptyStore();
 	const saved = [];
+	const removed = [];
 	const deps = {
 		store,
 		config: { relays: { manual: "https://a.example" } },
 		sites: () => [],
-		saveRelays: async (relays) => void saved.push(relays)
+		saveRelays: async (relays) => void saved.push(relays),
+		removeRelay: async (route) => void removed.push(route)
 	};
 	try {
 		assert.ok((await runCommand("site rm manual", deps)).includes("已删除"));
-		assert.deepEqual(saved, [{}]);
+		assert.deepEqual(removed, ["manual"]);
+		assert.deepEqual(saved, [], "the merging path must not be used for a deletion");
 
 		const text = await runCommand("site rm discovered-one", deps);
 		assert.ok(text.includes("自动发现的站点删不掉"));
 		assert.ok(text.includes("provider"), "it must say where the real change belongs");
-		assert.equal(saved.length, 1, "a refused removal writes nothing");
+		assert.deepEqual(removed, ["manual"], "a refused removal writes nothing");
+	} finally {
+		store.close();
+	}
+});
+
+test("`site rm` says so rather than claiming success when it cannot delete", async () => {
+	const store = emptyStore();
+	try {
+		const text = await runCommand("site rm manual", {
+			store,
+			config: { relays: { manual: "https://a.example" } },
+			sites: () => [],
+			saveRelays: async () => {}
+		});
+		assert.equal(text.includes("已删除"), false, "reporting a deletion that did not happen is the whole bug");
+		assert.ok(text.includes("settings.yaml"));
 	} finally {
 		store.close();
 	}

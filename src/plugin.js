@@ -311,7 +311,7 @@ export function describeProbe(site, probe) {
 }
 
 async function runSiteCommand(args, deps) {
-	const { config = {}, sites, saveRelays, saveUnavailableBecause, refresh, settle, probeStatus } = deps;
+	const { config = {}, sites, saveRelays, removeRelay, saveUnavailableBecause, refresh, settle, probeStatus } = deps;
 	const [action, ...rest] = args;
 	const manual = config.relays ?? {};
 
@@ -369,9 +369,13 @@ async function runSiteCommand(args, deps) {
 		if (!(route in manual)) {
 			return `\`${route}\` 不在手动配置里。自动发现的站点删不掉——它来自 DSH 的 provider 配置，改那里。`;
 		}
-		const next = { ...manual };
-		delete next[route];
-		await saveRelays(next);
+		if (removeRelay === undefined) {
+			return "这个 settings 服务不支持删除单个键。请直接编辑 settings.yaml 里的 `tokenledger.relays`。";
+		}
+		// Deliberately not `saveRelays` with the key left out: that path
+		// deep-merges, so an omitted key is not a deletion. It reported success
+		// while the entry stayed in the listing.
+		await removeRelay(route);
 		return `已删除手动配置的路由 \`${route}\`。`;
 	}
 
@@ -395,6 +399,7 @@ export async function runCommand(rawInput, deps) {
 			config,
 			sites,
 			saveRelays,
+			removeRelay: deps.removeRelay,
 			saveUnavailableBecause,
 			refresh: deps.refresh,
 			settle: deps.settle,
@@ -636,6 +641,7 @@ export function apply(ctx, userConfig = {}) {
 	// It is the one thing here that needs a dependency, so it is loaded
 	// dynamically and its absence costs exactly itself.
 	let settingsScope;
+	let settingsRemove;
 	let settingsFailure;
 
 	// `settings` is WAITED FOR, not sampled.
@@ -671,6 +677,7 @@ export function apply(ctx, userConfig = {}) {
 				.then((registered) => {
 					if (!live || registered === undefined) return;
 					settingsScope = registered.scope;
+					settingsRemove = registered.remove;
 					settingsFailure = undefined;
 					// Relay discovery reads provider profiles THROUGH this service, so
 					// the sweep that ran at startup — before the service existed — found
@@ -767,6 +774,13 @@ export function apply(ctx, userConfig = {}) {
 					? undefined
 					: async (relays) => {
 							await settingsScope.update({ relays });
+							refreshDirectory();
+						},
+			removeRelay:
+				settingsRemove === undefined
+					? undefined
+					: async (route) => {
+							await settingsRemove(route);
 							refreshDirectory();
 						},
 			saveUnavailableBecause: settingsFailure
