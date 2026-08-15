@@ -27,6 +27,7 @@
 
 import { applyUsageDelta, dayKey } from "./usage.js";
 import { RelaySiteRegistry, SITE_TYPES, createSiteResolver, domainOf } from "./relay-sites.js";
+import { discoverFromContext, mergeSites } from "./discovery.js";
 import { detectRelaySoftware } from "./adapters/detect.js";
 import { LedgerStore } from "./store.js";
 import { RateTable, priceRows } from "./pricing.js";
@@ -133,12 +134,26 @@ export function normalizeRelayConfig(config = {}) {
 		});
 	}
 
-	// Attribution needs only the origin match, so a site whose software is not
-	// yet known is still usable here.
-	const registry = new RelaySiteRegistry(
-		sites.map((s) => ({ ...s, type: s.type ?? SITE_TYPES[0] }))
-	);
-	return { sites, providerBaseUrls, resolveSite: createSiteResolver(registry, providerBaseUrls) };
+	return { sites, providerBaseUrls, resolveSite: buildResolver({ sites, providerBaseUrls }) };
+}
+
+/**
+ * Build the route→site resolver for a set of sites.
+ *
+ * Attribution needs only the origin match, so a site whose software is not yet
+ * known is still usable: `SITE_TYPES` rejects `undefined`, so an unfingerprinted
+ * site is registered under a placeholder type it will overwrite once detection
+ * answers. The type decides which billing adapter could later be offered; it
+ * never decides where a token is counted.
+ *
+ * @returns the resolver, or undefined when there are no sites — which
+ *   attributes everything to `direct` and still produces a correct per-model
+ *   report.
+ */
+export function buildResolver({ sites = [], providerBaseUrls = {} } = {}) {
+	if (sites.length === 0) return undefined;
+	const registry = new RelaySiteRegistry(sites.map((s) => ({ ...s, type: s.type ?? SITE_TYPES[0] })));
+	return createSiteResolver(registry, providerBaseUrls);
 }
 
 /**
@@ -217,9 +232,9 @@ export async function sweep(persistence, store, options = {}) {
  * which already says "cannot compare". Omitting it, or inventing an agreeing
  * row, would both read as a clean bill of health it has not earned.
  */
-async function collectReconciliations(store, config, range, siteFilter, logger) {
+async function collectReconciliations(store, config, range, siteFilter, logger, knownSites) {
 	const readers = config.billing ?? {};
-	const configuredSites = config.sites ?? normalizeRelayConfig(config).sites;
+	const configuredSites = knownSites ?? config.sites ?? normalizeRelayConfig(config).sites;
 	const out = [];
 	for (const site of configuredSites) {
 		if (siteFilter !== undefined && site.id !== siteFilter) continue;
@@ -247,6 +262,80 @@ async function collectReconciliations(store, config, range, siteFilter, logger) 
 }
 
 /**
+ * `/tokenledger site [list|add|rm]` — see and correct the relay set without
+ * opening a file.
+ *
+ * Normally there is nothing to do here: sites come from the host's own provider
+ * configuration. This exists for the two cases discovery cannot cover — a
+ * composition with no settings provider, and a provider mounted by an agent
+ * preset — and for correcting a bad guess.
+ *
+ * `add` takes the DSH provider route as well as the URL, because the route is
+ * what attribution matches on and is the one thing this code cannot derive. The
+ * listing prints the routes it already knows so that argument can be copied
+ * rather than looked up.
+ *
+ * @param args - arguments after `site`.
+ * @param deps - `{ config, sites, saveRelays }`.
+ * @returns the text to show.
+ */
+async function runSiteCommand(args, deps) {
+	const { config = {}, sites, saveRelays } = deps;
+	const [action, ...rest] = args;
+	const manual = config.relays ?? {};
+
+	if (action === undefined || action === "list") {
+		const known = sites?.() ?? [];
+		if (known.length === 0) {
+			return [
+				"没有发现任何中转站。",
+				"",
+				"如果你直连官方，这是对的——用量统计照常按模型和路由分。",
+				"如果你确实在用中转站而这里是空的，说明宿主的 provider 配置读不到，",
+				"用 `/tokenledger site add <路由名> <地址>` 手动补一条。"
+			].join("\n");
+		}
+		const lines = known.map((s) => {
+			const how = s.discovered === false ? "手动" : "自动发现";
+			const type = s.type ?? "未识别";
+			const routes = (s.routes ?? []).join(", ") || "—";
+			return `  ${s.id}  〔${how} · ${type}〕  路由：${routes}`;
+		});
+		return [`中转站（${known.length}）：`, ...lines, "", "改：`/tokenledger site add <路由名> <地址>` 或 `site rm <路由名>`"].join("\n");
+	}
+
+	if (saveRelays === undefined) {
+		return "这个组合里没有 settings 服务，改不了配置。请直接编辑 cordis.patch.yml 里的 `relays`。";
+	}
+
+	if (action === "add") {
+		const [route, url] = rest;
+		if (route === undefined || url === undefined) {
+			return "用法：`/tokenledger site add <路由名> <地址>`，例如 `site add myrelay https://relay.example.com/v1`。";
+		}
+		if (domainOf(url) === undefined) {
+			return `\`${url}\` 不是一个可用的 http(s) 地址。`;
+		}
+		await saveRelays({ ...manual, [route]: url });
+		return `已记下：路由 \`${route}\` → ${domainOf(url)}。下一次统计会把它算进去。`;
+	}
+
+	if (action === "rm") {
+		const [route] = rest;
+		if (route === undefined) return "用法：`/tokenledger site rm <路由名>`。";
+		if (!(route in manual)) {
+			return `\`${route}\` 不在手动配置里。自动发现的站点删不掉——它来自 DSH 的 provider 配置，改那里。`;
+		}
+		const next = { ...manual };
+		delete next[route];
+		await saveRelays(next);
+		return `已删除手动配置的路由 \`${route}\`。`;
+	}
+
+	return "用法：`/tokenledger site [list|add|rm]`。";
+}
+
+/**
  * The `/tokenledger` command body, separated from its Cordis shell so it can be
  * exercised against a real store without booting a harness.
  *
@@ -255,8 +344,10 @@ async function collectReconciliations(store, config, range, siteFilter, logger) 
  * @returns the report text.
  */
 export async function runCommand(rawInput, deps) {
-	const { store, config = {}, sweep: doSweep, reindex, logger } = deps;
+	const { store, config = {}, sweep: doSweep, reindex, logger, sites, saveRelays } = deps;
 	const args = String(rawInput ?? "").trim().split(/\s+/).filter(Boolean);
+
+	if (args[0] === "site") return runSiteCommand(args.slice(1), { config, sites, saveRelays });
 
 	if (args[0] === "reindex") {
 		const stats = await reindex?.();
@@ -273,7 +364,7 @@ export async function runCommand(rawInput, deps) {
 	const site = rest.find((a) => !/^\d+$/.test(a));
 	const range = Number.isFinite(days) && days > 0 ? { from: dayKeyDaysAgo(days - 1) } : {};
 
-	const reconciliations = await collectReconciliations(store, config, range, site, logger);
+	const reconciliations = await collectReconciliations(store, config, range, site, logger, sites?.());
 	if (reconcileOnly) return renderReconciliation(reconciliations);
 
 	const byId = {};
@@ -311,22 +402,72 @@ export function apply(ctx, userConfig = {}) {
 		return;
 	}
 
-	const relays = normalizeRelayConfig(config);
-	const resolveSite = relays.resolveSite;
+	// --- the site directory -------------------------------------------------
+	//
+	// Sites are learned from the host, not configured: see `discovery.js`. The
+	// set is therefore not fixed at mount time — a user can add a relay to DSH's
+	// provider settings while this plugin is running — so the directory is
+	// rebuilt at the head of every sweep rather than captured once.
+	//
+	// Rebuilding is two in-memory reads and no I/O, which is why it can afford to
+	// run on the sweep timer instead of subscribing to a change event. It also
+	// inherits the property that makes sweeping the right shape for this whole
+	// plugin: it is idempotent and self-healing, so a missed notification costs
+	// one interval rather than a permanently stale answer.
+	let directory = { sites: [], providerBaseUrls: {}, resolveSite: undefined };
+	let directoryKnown = false;
+	const fingerprinted = new Set();
 
-	// Fingerprint each configured relay once, in the background. It costs a few
-	// unauthenticated HEAD-ish GETs and saves the user from typing a `type` they
-	// would have to look up. A failure leaves the type unknown, which only
-	// affects which billing adapter could later be offered — never attribution.
-	for (const site of relays.sites) {
-		if (site.type !== undefined) continue;
+	/** Distinct origins, order-independent — the only change that alters attribution. */
+	const originKey = (d) => [...new Set(Object.values(d.providerBaseUrls ?? {}))].sort().join(" ");
+
+	/**
+	 * Fingerprint a relay once, in the background. It costs a few unauthenticated
+	 * GETs and saves the user from looking up a `type`. A failure leaves the type
+	 * unknown, which only affects which billing adapter could later be offered —
+	 * never attribution.
+	 */
+	const fingerprint = (site) => {
+		if (site.type !== undefined || fingerprinted.has(site.id)) return;
+		fingerprinted.add(site.id);
 		void detectRelaySoftware(site.baseUrl)
 			.then((result) => {
 				site.type = result.billingAvailable ? result.software : undefined;
 				logger?.info?.("tokenledger: %s looks like %s (confidence %s)", site.id, result.software, result.confidence);
 			})
 			.catch((error) => logger?.warn?.("tokenledger: could not fingerprint %s: %s", site.id, error?.message ?? error));
-	}
+	};
+
+	/**
+	 * @returns whether the origin set moved, which means already-folded history
+	 *   was attributed under the old set and has to be rebuilt.
+	 */
+	const refreshDirectory = () => {
+		let discovered;
+		try {
+			discovered = discoverFromContext(ctx, { officialOrigins: config.officialOrigins });
+		} catch (error) {
+			// A host that cannot be asked leaves the manual config in charge.
+			logger?.warn?.("tokenledger: could not read the provider directory: %s", error?.message ?? error);
+			discovered = { sites: [], providerBaseUrls: {}, skipped: 0, available: false };
+		}
+		const merged = mergeSites(discovered, normalizeRelayConfig(config));
+		const next = { ...merged, resolveSite: buildResolver(merged) };
+		const moved = directoryKnown && originKey(next) !== originKey(directory);
+
+		if (!directoryKnown && discovered.available && merged.sites.length > 0) {
+			logger?.info?.(
+				"tokenledger: found %d relay site(s) in the host's provider configuration: %s",
+				merged.sites.length,
+				merged.sites.map((s) => s.id).join(", ")
+			);
+		}
+		directory = next;
+		directoryKnown = true;
+		for (const site of next.sites) fingerprint(site);
+		return moved;
+	};
+
 	let running = false;
 
 	const runSweep = async () => {
@@ -334,8 +475,18 @@ export function apply(ctx, userConfig = {}) {
 		if (running) return undefined;
 		running = true;
 		try {
+			// Attribution is resolved at fold time and history is never rewritten,
+			// so a newly discovered relay does not retroactively claim the traffic
+			// it already served. Discarding the index is the only honest response:
+			// the alternative is a report that shows a site starting from the
+			// moment it was noticed, which reads as "you just started using this"
+			// rather than "this was only just recognised".
+			if (refreshDirectory()) {
+				logger?.info?.("tokenledger: the relay set changed; rebuilding the index so past traffic is attributed too");
+				store.reset();
+			}
 			const stats = await sweep(ctx.sessionPersistence, store, {
-				resolveSite,
+				resolveSite: directory.resolveSite,
 				logger,
 				dshVersion: config.dshVersion
 			});
@@ -357,6 +508,37 @@ export function apply(ctx, userConfig = {}) {
 		}
 	};
 
+	// --- durable configuration ----------------------------------------------
+	//
+	// Registering the namespace puts this plugin's settings in the file the user
+	// already edits and makes an edit live without a restart. It is also what
+	// makes `/tokenledger site add` able to persist anything: `update()` only
+	// works on a registered namespace.
+	//
+	// It is the one thing here that needs a dependency, so it is loaded
+	// dynamically and its absence costs exactly itself.
+	let settingsScope;
+	const settings = typeof ctx.get === "function" ? ctx.get("settings") : undefined;
+	if (settings !== undefined) {
+		void import("./settings-schema.js")
+			.then(({ registerNamespace }) =>
+				registerNamespace(settings, userConfig, (next) => {
+					// A resolved value replaces the entry config wholesale; the
+					// directory picks the change up on the next sweep.
+					Object.assign(config, next);
+				})
+			)
+			.then((registered) => {
+				settingsScope = registered?.scope;
+			})
+			.catch((error) => {
+				logger?.warn?.(
+					"tokenledger: settings namespace unavailable (%s); using entry config only, and `/tokenledger site` cannot save",
+					error?.message ?? error
+				);
+			});
+	}
+
 	const api = {
 		store,
 		sweep: runSweep,
@@ -364,6 +546,7 @@ export function apply(ctx, userConfig = {}) {
 		byDay: (range, site) => store.byDay(range, site),
 		byModel: (range, site) => store.byModel(range, site),
 		bySite: (range) => store.bySite(range),
+		sites: () => directory.sites.map((s) => ({ ...s })),
 		diagnostics: () => store.diagnostics(),
 		/** Discard the index; the next sweep rebuilds it from seq 0. */
 		reindex: async () => {
@@ -395,8 +578,8 @@ export function apply(ctx, userConfig = {}) {
 			ctx.effect(function* () {
 				yield commands.register({
 					name: config.commandName ?? "tokenledger",
-					description: "Token usage by model and relay site, with billing reconciliation",
-					input: { hint: "[days] [site] | reconcile | reindex" },
+					description: "Token usage by model and relay site",
+					input: { hint: "[days] [site] | site [add|rm] <url> | reconcile | reindex" },
 					handler: async (invocation) => {
 						try {
 							return { kind: "success", text: await handleCommand(invocation.rawInput ?? "") };
@@ -412,7 +595,23 @@ export function apply(ctx, userConfig = {}) {
 	}
 
 	const handleCommand = (rawInput) =>
-		runCommand(rawInput, { store, config, sweep: runSweep, reindex: api.reindex, logger });
+		runCommand(rawInput, {
+			store,
+			config,
+			sweep: runSweep,
+			reindex: api.reindex,
+			logger,
+			sites: () => directory.sites,
+			// Present only once the namespace registered; `runCommand` says so
+			// rather than failing, because the report half still works without it.
+			saveRelays:
+				settingsScope === undefined
+					? undefined
+					: async (relays) => {
+							await settingsScope.update({ relays });
+							refreshDirectory();
+						}
+		});
 
 	if (config.sweepOnStart) void runSweep();
 

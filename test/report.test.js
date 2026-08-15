@@ -175,7 +175,12 @@ test("with no relays configured the report shows provider routes, not a useless 
 	assert.ok(text.includes("Provider 路由分布"));
 	assert.ok(text.includes("deepseek-official"));
 	assert.equal(text.includes("中转站分布"), false, "one useless row is worse than the real breakdown");
-	assert.ok(text.includes("relays"), "and it says how to upgrade to site grouping");
+	// Sites are discovered from DSH's provider configuration, so an empty list
+	// normally means "direct". Telling a direct user to write `relays` — which is
+	// what this line used to do — was instructions for a problem they do not have.
+	assert.ok(text.includes("直连的话这就是全部"));
+	assert.ok(text.includes("site add"), "and the one actionable case still has a way out");
+	assert.equal(text.includes("relays:"), false, "no longer asks for hand-written config");
 });
 
 test("once a relay is configured the site breakdown takes over", () => {

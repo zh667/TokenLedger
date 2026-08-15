@@ -1,66 +1,201 @@
 # TokenLedger Roadmap
 
-Updated: 2026-08-14
+Updated: 2026-08-15
 
 ## Product definition
 
-> **TokenLedger measures DeepSeek Harness token usage with relay-site
-> attribution, and reconciles it against New API and Sub2API billing data.**
+> **TokenLedger measures DeepSeek Harness token usage and attributes it to the
+> relay site that served each request — with no configuration and no
+> credentials.**
 
-Usage accounting is the base; reconciliation is the product. Neither half works
-alone — a relay adapter with nothing to compare against reports the site's own
-numbers back to you, and a usage dashboard without site attribution can never
-answer "was I charged correctly".
+This replaces the definition this document carried until 2026-08-15, which read
+"…and reconciles it against New API and Sub2API billing data" and called
+reconciliation "the product". That was wrong in two ways, and both were found by
+using the thing rather than by reasoning about it:
 
-## Why this and not something else
+1. **Reconciliation needs credentials most users cannot supply.** Reading New
+   API's per-request consumption log means `GET /api/log`, an *administrator*
+   endpoint. A normal relay customer holds an API key, which reads a balance and
+   nothing else. Realistically only a relay's own operator can run
+   reconciliation against New API.
+2. **The question users actually have is smaller.** "Which relays am I using and
+   how many tokens went to each" needs only the origin a request was sent to. No
+   billing endpoint, no key, no admin account.
 
-Surveyed 2026-08-14 across the `dsh-plugin` GitHub topic (1335 repositories,
-845 sampled) and `AdamPlatin123/awesome-dsh-plugins` (288 indexed).
+So the product is the attribution, and it is free. Reconciliation stays in the
+codebase as a library — see [Deferred](#deferred-reconciliation).
 
-The DSH ecosystem is roughly 48 hours old — DSH itself went public
-2026-08-13 11:56 UTC. Almost everything built so far is what one person can
-ship in a day: skins (43), live token HUDs and balance readouts (59), desktop
-shells (59), prompt/skill packs (109). Counting repositories on day two
-measures speed, not settlement.
+## Status
 
-What matters is which gaps DeepSeek will close themselves:
+| Capability | State |
+|---|---|
+| Usage fold from session logs (dual-source, `(turn,step)` replacement) | ✅ shipped |
+| SQLite rollups, checkpoints, incremental sweep, full reindex | ✅ shipped |
+| Per-day / per-model / per-provider / per-site queries, CSV+JSON export | ✅ shipped |
+| Cost estimation with effective-dated rates and off-peak windows | ✅ shipped |
+| Relay software fingerprinting (credential-free) | ✅ shipped |
+| Relay-site attribution | ✅ shipped, **but requires manual config** — being fixed, item A |
+| `/tokenledger` report command | ✅ shipped |
+| New API / Sub2API billing adapters | ✅ library only, **never wired to config** |
+| Reconciliation engine | ✅ library only, **not reachable by a user** |
+| Web UI | ✗ not started, deliberately — see [Later](#later--sidebar-panel) |
 
-| Gap | DSH native | Verdict |
-|---|---|---|
-| Declarative hooks | none | DeepSeek will ship it — CC has it |
-| Checkpoints / rewind | none | DeepSeek will ship it — CC has it |
-| ACP (editor-driven agent) | none | DeepSeek will ship it |
-| Git worktree isolation | none | DeepSeek will ship it |
-| OTel / observability | **ships** — `dsh-session-telemetry-otel` is in the default web profile, `DISABLED` unless `DSH_TELEMETRY_MODE` is set | Not a gap. An earlier revision of this table claimed otherwise; that was wrong, and checked against a real install rather than the published type declarations it would have been caught sooner |
-| **Relay-site billing reconciliation** | none | **DeepSeek will never ship it** |
+`dsh-tokenledger@0.0.1`, zero runtime dependencies, 128 tests, unpublished.
 
-The last row is the only structurally durable one. Reconciliation exists to
-audit third-party resellers of DeepSeek API access — checking whether a relay
-overcharged you. That is against the vendor's own commercial interest, and it
-would require DeepSeek to implement adapters for competing gateways. Zero of
-845 repositories do it, and that is not a timing accident: it is the position
-nobody upstream is willing to occupy.
+Verified on real data 2026-08-14 (a live agent turn against a live New API
+relay): detect → fold → relay read → reconcile, with zero token delta and the
+charge reproduced exactly from the site's own published ratios. The engine is
+sound. What is missing is the path from a user's configuration to it.
 
-## Scope
+## Approved plan (2026-08-15)
 
-### In scope
+Reviewed and approved by the repository owner. Five items, in dependency order.
 
-- Per-day, per-`(site, provider, model)` token accounting from DSH session logs.
-- Read-only New API and Sub2API billing adapters.
-- Side-by-side comparison with an explicit reconciliation evidence level.
-- Cost estimation kept separate from site-reported charges.
-- A DSH plugin surfacing all of it in the Web UI.
+### A. Auto-discover relay sites — remove the configuration entirely
 
-### Out of scope
+Today a user must write the relay's base URL into TokenLedger's config. They
+already typed it once, into DSH's own provider settings. Asking twice is a
+defect, not a configuration surface.
+
+The host will tell us, and the chain is verified against
+`@deepseek-ai/dsh-llm@0.1.0-rc.6` and `dsh-llm-pi-ai`:
+
+```js
+ctx.get('llm').listConfigurableProviders()
+// → [{ provider, displayName, settingsNs, settingsPath, declared? }]
+
+ctx.get('settings').get(settingsNs)     // any registered namespace is readable
+// → walk settingsPath to that provider's profile → its `baseURL`
+```
+
+`declared` is the discriminator, and upstream defines it as exactly what we
+mean by a relay:
+
+> whether the owning adapter knows this route only because configuration
+> declared it — **a gateway or self-hosted server it ships nothing about**
+
+Rules:
+
+- Read **only** `baseURL`. The resolved value also contains the API key; it is
+  never read, never logged, never stored. Site records already reject `apiKey`
+  and `token` fields and that stays enforced.
+- A discovered site's id is its exact domain.
+- Software type stays unknown until background fingerprinting answers.
+- Manual `relays` config remains, demoted to an override for what discovery
+  cannot see.
+
+Two cases discovery cannot cover, which is why the manual path survives:
+
+- a composition with no `settings` provider mounted;
+- a provider mounted by an agent preset, whose configuration lives inline in
+  `agent.cordis.yml` and can register no settings namespace at all.
+
+**Attribution is resolved at fold time and history is never rewritten.** A site
+discovered after the fact does not retroactively re-attribute old rows, so a
+change to the origin set must trigger a reindex rather than silently showing an
+incomplete past.
+
+### B. Register the `tokenledger` settings namespace
+
+`ctx.settings.register('tokenledger', schema, { base })`, reached through
+`ctx.get('settings')` so a composition without a settings provider still works.
+
+Buys two things: configuration lives in the `settings.yaml` the user already
+has, and `watch` makes a change live without restarting DSH.
+
+**Cost: a peer dependency on `@deepseek-ai/schemastery`.** This ends the "zero
+dependencies" claim, which must be corrected everywhere it appears. The
+practical cost is nil — DSH already installs schemastery — but the claim was
+made and has to be withdrawn honestly rather than quietly qualified.
+
+Prerequisite for C: `get`/`update` only work on a registered namespace.
+
+### C. `/tokenledger site add|rm|list`
+
+Configuration without opening a file, persisted through
+`ctx.settings.update()` / `mutate()`.
+
+Scope note: DSH commands take arguments in one shot. There is no multi-turn
+prompt, so this is `/tokenledger site add <url>`, not an interactive wizard. A
+question-and-answer flow needs the panel in [Later](#later--sidebar-panel).
+
+### D. Report defaults to per-site grouping
+
+With sites discovered rather than configured, the site breakdown is the default
+view. The provider-route breakdown stays as the fallback when no relay exists —
+a single "direct" row is worse than no table.
+
+### E. Correct the README
+
+The README's headline currently promises reconciliation against New API and
+Sub2API billing, and its capability table marks the reconciliation engine ✅.
+The engine is ✅; the feature is not reachable by any user. Both statements go,
+replaced by the honest state and by the fact that New API reconciliation needs
+administrator credentials.
+
+## Deferred: reconciliation
+
+Kept in the codebase, removed from the promises.
+
+Why keep it: `verifyCharge` recomputes New API's charge from the ratios the site
+itself publishes, in exact BigInt rationals with round-half-away-from-zero.
+Measured against 1960 real consumption rows: 1950 reproduced under the declared
+OpenAI convention, 10 under the Anthropic variant, **0 unexplained**. Floating
+point mis-rounds roughly 2% of those rows, which is why the rationals are there.
+Nothing else in the ecosystem does this, and it is the one part of this package
+that would be genuinely hard to rebuild.
+
+Why not promote it: the audience is relay operators, not relay customers.
+
+What it would take to finish: a credential seam (a reference to
+`@deepseek-ai/dsh-credentials-local`, never a literal key in a config file), a
+`createBillingReader(site, credentials)` factory, and wiring in
+`collectReconciliations` — which today reads `config.billing[siteId]`, a map of
+**functions** that only tests can supply.
+
+## Later — sidebar panel
+
+A left-sidebar entry the user clicks when they want to look. Researched
+2026-08-15; feasible, deliberately not now.
+
+The seat is `sidebar.footer.action` (declared by
+`@deepseek-ai/dsh-client-ui-sidebar`): a root-scoped **list** slot for "optional
+actions beside Settings at the sidebar foot", receiving only `wide`. The panel
+it opens goes in `shell.overlay`, the frame-wide floating list slot
+`dsh-client-runtime` names as the additive alternative to a React root. The
+precedent to copy is `@deepseek-ai/dsh-client-ui-cordis`, whose registration is
+about ten lines.
+
+It is nearly empty real estate — one occupant today — unlike `settings.section`,
+where everything with a UI will pile up.
+
+Cost, and the reason it waits: a React browser half, ~6
+`@deepseek-ai/dsh-client-*` peer dependencies, a bundling step this package does
+not have, and a surface with no test coverage. One unknown remains: how a
+third-party plugin registers its own RPC so the panel can read the index.
+
+**Blocked, separately:** the native plugin-configuration card
+(`settings.plugin.item`) cannot be used at all. `dsh-host-apiproxy` gates
+settings namespaces served to the browser behind a hardcoded seven-name
+allowlist — `agent-loop`, `shell`, `locale`, `permission`, `ui-conversation`,
+`ui-theme`, `web-search-deepseek` — and anything else answers
+`settings-not-exposed`. Upstream documents the fix as deferred work:
+
+> Moving that declaration to `settings.register()`, so a plugin can expose its
+> own configuration without a change in this package, is deferred work.
+
+Note this gates only the **browser's** settings RPC. Host-side
+`ctx.settings.get/register/update` is unaffected, which is what makes A, B, and
+C possible.
+
+## Out of scope
 
 - Another live token HUD, TPS meter, or context-occupancy widget. Solved 30×.
 - Skins, pets, sidebars, desktop shells.
-- Re-implementing what `@deepseek-ai/dsh-token-meter` already computes.
 - Writing to relay sites. Every adapter is read-only.
 - Claiming `request`-level reconciliation when only aggregates exist.
 - Cross-device or cross-agent aggregation — that is UsagePlane's scope.
-  TokenLedger stays single-machine and DSH-side, and its `relay-billing`
-  adapters are written so UsagePlane can consume them rather than fork them.
+  TokenLedger stays single-machine and DSH-side.
 
 ## DSH event contract
 
@@ -95,13 +230,8 @@ Load-bearing consequences, all covered by `test/usage.test.js`:
 - **Buckets are disjoint.** `inputTokens` already excludes cache reads/writes.
   `reasoningTokens` is inside `outputTokens`; display it, never add it.
 - **Idempotency key is `sessionId + seq`.**
-- **Read seam** is `sessionPersistence.readFrom(id, fromSeq)`, documented
-  upstream as "intended for checkpoint consumers"; discover changed logs via
-  `listSnapshots()` opaque revisions.
-
-Upstream is a developer preview (`dsh` `0.1.0-rc.6`, subpackages `0.0.1-rc.1`).
-Every shape assumption lives in the fold module with fixture tests, so a
-breaking change fails in one place.
+- **Read seam** is `sessionPersistence.readFrom(id, fromSeq)`; discover changed
+  logs via `listSnapshots()` opaque revisions.
 
 ## Storage
 
@@ -113,284 +243,77 @@ copy it. Two layers only:
 | DSH session logs | Authoritative, owned by DSH |
 | `(sessionId → consumedSeq)` checkpoints + SQLite rollups | Disposable, rebuildable |
 
-A full rebuild is `readFrom(id, 0)` over every session and must be a tested,
-user-triggerable operation. Checkpoints advance only after the rollup write
-commits. Index failures never block a DSH turn, startup, or shutdown.
-Diagnostics expose counts, lag, and failures — never prompts, tool arguments,
-API keys, or response content.
+Storage uses Node's built-in `node:sqlite` (`DatabaseSync`). Rollups are keyed
+`(sessionId, day, site, provider, model)` so a re-fold **replaces** rows rather
+than requiring subtraction. Checkpoints advance only after the rollup write
+commits, in the same transaction. Index failures never block a DSH turn,
+startup, or shutdown. Diagnostics expose counts, lag, and failures — never
+prompts, tool arguments, API keys, or response content.
 
-## Phase 0 — usage core ✅
+## Verified against a real DSH install
 
-- [x] Dual-source usage fold with `(turn, step)` replacement.
-- [x] Route attribution: `message.source` primary, `request/header` fallback,
-      explicit `unknown`.
-- [x] Relay-site dimension resolved at fold time, history never rewritten.
-- [x] Disjoint billed totals; reasoning tracked but excluded.
-- [x] Incremental fold with `consumedSeq` checkpoints across slice boundaries.
-- [x] Site registry with origin normalization and credential fingerprints.
-- [x] Range / by-model / by-site queries.
-- [x] 16 tests, no runtime dependencies.
+Installed `@deepseek-ai/dsh@0.1.0-rc.6` and dumped the default `web` profile
+composition on 2026-08-14. Checked rather than inferred:
 
-## Execution plan: three independent tracks
+**Sessions are JSONL on disk.** `@deepseek-ai/dsh-session-persistence-jsonl`
+with `root: dshHomePath('sessions')`. A separate `dsh-session-query-sqlite` runs
+at `:memory:` — DSH's own index, not somewhere TokenLedger should write.
 
-The remaining work is not a chain. Sequencing it as one would idle two thirds
-of it behind the slowest link, so it runs as three tracks that share nothing
-but the bucket shape already fixed in Phase 0.
+**Third-party endpoints are configuration, not code.** The shipped adapter is
+`@deepseek-ai/dsh-llm-pi-ai`; a route it does not ship "is declared outright, so
+an OpenAI-compatible gateway, a self-hosted server, or a provider newer than the
+installed catalog is configuration rather than a code change". Relay sites are
+ordinary DSH provider routes, which is what makes this project possible.
 
-```text
-Track A — persistence          Track B — pricing           Track C — adapters
- SQLite rollups                 rate table                  normalized billing fact
- checkpoints                    peak/off-peak windows       New API (key + PAT)
- session discovery              cost estimation             Sub2API
- full rebuild                   per-site overrides          fixtures
- diagnostics
-        │                              │                            │
-        └──────────────┬───────────────┴────────────────┬───────────┘
-                       ▼                                ▼
-              Track D — reconciliation           Track E — plugin + UI
-               evidence levels                    dsh.bundle manifest
-               difference reporting               usage page
-               (needs B's cost + C's shape)       reconciliation page
-                                                  (needs A)
-```
+**The provider → base URL map has a known location and shape** — that adapter's
+`config.providers`, keyed by the route name that later appears in
+`AssistantProvenance.provider`. As of item A this is read from the host rather
+than restated by the user.
 
-Why they are genuinely independent:
+**Credentials already have a home.** `@deepseek-ai/dsh-credentials-local` is in
+the default profile, so a future credential seam has somewhere to live.
 
-- **B needs nothing.** Cost is a pure function of the buckets Phase 0 already
-  produces. No I/O, no DSH, no database. Testable the moment it is written.
-- **C needs nothing.** Each adapter is an HTTP client returning a normalized
-  billing fact. It talks to a relay, never to DSH or to the store.
-- **A needs a DSH install to exercise end to end, but not to build.** The
-  schema, checkpoint logic, and rebuild path are testable against synthetic
-  event logs.
-- **D can start as soon as C's output *shape* is agreed**, which is a
-  five-minute decision, not a dependency on finished adapters. The DSH side it
-  compares against — `bySite()` — already exists.
-- **E is the only true tail.** It needs A working to have anything to show.
+**Session logs are zstd, and not in one piece.** `$DSH_HOME/sessions/<encoded
+cwd>/session-<uuid>/session.jsonl.zstd`, written as **multiple concatenated
+zstd frames** — one per flush. A single `zstdDecompressSync` decodes only the
+first frame and silently returns a fraction of the log: an 11.9 KB file appeared
+to hold one line. This is a good reason not to parse them directly at all;
+`sessionPersistence.readFrom()` is the supported seam.
 
-Consequence for ordering: A, B, and C run together. D follows the shape
-agreement, not the adapters. E is last, and is also the listing gate below.
+## Windows first-run verification
 
-## Ecosystem listing gate
+Performed by the repository owner on 2026-08-14 against a real
+`npx @deepseek-ai/dsh web` install. Closed three unknowns that could not be
+tested on Linux: the plugin loads from a published tarball, the sweep finds real
+session logs under a Windows `$DSH_HOME`, and the report renders in the
+conversation stream. It also found a real defect — the reconciliation view was
+telling users to write config keys (`sites`, `providerBaseUrls`) that had
+already been removed.
 
-**Do not submit to the curated indexes until Track E ships a real plugin.**
+## Ecosystem listing
+
 Verified 2026-08-14 against each index's contributing rules.
 
 | Index | ★ | Mechanism | Requirement |
 |---|---|---|---|
-| `AdamPlatin123/awesome-dsh-plugins` | 623 | **Automatic** — scans the `dsh-plugin` topic | None. The topic is already set; pickup is free. |
-| `awesome-dsh-plugin/awesome-dsh-plugin` | 483 | Pull request | `package.json` must declare a **`dsh.bundle`** manifest (`dsh.client` alone is rejected) **and** a `cordis.patch.yml` must exist. "Placeholder, name-squat, or README-only repos don't qualify." Actively maintained; inactive entries are pruned. |
-| `0xsline/awesome-deepseek-harness` | 289 | Pull request | A real ecosystem repository, no dead links or placeholders. One factual line, no marketing. |
+| `AdamPlatin123/awesome-dsh-plugins` | 623 | **Automatic** — scans the `dsh-plugin` topic | None; the topic is set. |
+| `awesome-dsh-plugin/awesome-dsh-plugin` | 483 | Pull request | `package.json` must declare `dsh.bundle` **and** a `cordis.patch.yml` must exist. |
+| `0xsline/awesome-deepseek-harness` | 289 | Pull request | A real repository, no placeholders. One factual line. |
 | `bruc3van/awesome-dsh-plugin` | 54 | Pull request | Explains what the plugin solves and for whom. |
 
-Submission mechanics for the PR-based ones: fork, add one line under the
-matching category to **both** the English and Chinese README, open a PR titled
-`docs: add zh667/TokenLedger`. The line:
+The repository owner opens these submissions.
 
-```markdown
-- [zh667/TokenLedger](https://github.com/zh667/TokenLedger) - DSH token usage accounting reconciled against New API and Sub2API relay-site billing.
-```
-
-Timing: these indexes review by hand. As of 2026-08-14 they carry 22 and 17
-open issues respectively — still tractable. The ecosystem is 48 hours old and
-adding dozens of repositories a day, so the review queue will lengthen fast.
-Submit the day Track E clears the bar, not before and not much after.
-
-**This gate is a checklist item, not a background task.** Whoever finishes
-Track E is responsible for opening the four submissions in the same session.
-
-## Verified against a real DSH install
-
-Installed `@deepseek-ai/dsh@0.1.0-rc.6` (350 MB of dependencies) and dumped the
-default `web` profile composition on 2026-08-14. Four assumptions this project
-rests on, checked rather than inferred:
-
-**Sessions are JSONL on disk.** `@deepseek-ai/dsh-session-persistence-jsonl`
-with `root: dshHomePath('sessions')` — so `$DSH_HOME/sessions`. A separate
-`dsh-session-query-sqlite` runs at `:memory:` with `openAt: never` by default,
-which is DSH's own index and not somewhere TokenLedger should write.
-
-**Third-party endpoints are configuration, not code.** The shipped adapter is
-`@deepseek-ai/dsh-llm-pi-ai`, whose README states that a route pi-ai does not
-ship "is declared outright, so an OpenAI-compatible gateway, a self-hosted
-server, or a provider newer than the installed catalog is configuration rather
-than a code change". Relay sites are therefore ordinary DSH provider routes,
-which is what makes this project possible at all.
-
-**The provider → base URL map has a known location and shape.** It is that
-adapter's `config.providers`, keyed by the route name that later appears in
-`AssistantProvenance.provider`:
-
-```yaml
-- id: llm
-  name: '@deepseek-ai/dsh-llm-pi-ai'
-  config:
-    providers:
-      <route>:
-        apiKeyEnv: SOME_ENV_VAR    # a credential reference; no secret in the file
-        baseURL: https://relay.example.com
-```
-
-That closes the attribution chain end to end: `assistant/message` names its
-route, the composition maps that route to an origin, and the site registry maps
-the origin to a relay. `createSiteResolver` needs no guessing.
-
-**Credentials already have a home.** `@deepseek-ai/dsh-credentials-local` is in
-the default profile, so Track C's credential-store requirement has an existing
-seam rather than needing a new one.
-
-**Session logs are zstd, and not in one piece.** `$DSH_HOME/sessions/<encoded
-cwd>/session-<uuid>/session.jsonl.zstd`, written as **multiple concatenated
-zstd frames** — one per flush, which is how an append-only log stays
-compressed. A single `zstdDecompressSync` decodes only the first frame and
-silently returns a fraction of the log: an 11.9 KB file appeared to hold one
-line. Anything parsing these files directly must scan for the `28 B5 2F FD`
-frame magic and decode each frame. This is a good reason not to parse them
-directly at all — `sessionPersistence.readFrom()` is the supported seam and
-compression is DSH's business, not the collector's.
-
-## End-to-end verification on real data
-
-Ran on 2026-08-14 against a real DSH session and a real New API relay. Not a
-fixture: a live agent turn billed to a live account.
-
-```text
-1. detect      api.<relay> -> newapi (confidence 1)        no credential used
-2. fold        real session log -> input=10119 output=26 requests=1
-3. relay       charged 8991 quota (0.131269 CNY)
-               recomputed from its own ratios: 8991, delta=0, variant=openai
-4. reconcile   level=aggregate, token deltas all 0
-               charged 0.1312686 CNY vs estimate 0.131263 CNY (+0.000006)
-```
-
-What each step proves:
-
-- The event shapes are as assumed. `request/header.config` carried
-  `{provider, model}`; `assistant/message.source` carried
-  `{kind:'model', provider, model, replayState}`; usage arrived as
-  `{inputTokens, outputTokens}`.
-- **The replacement rule fires on real traffic.** The same `(turn, step) 1/1`
-  was reported twice — once on an `assistant/chunk`, once on the
-  `assistant/message` — and the fold recorded `requests: 1`, not 2. This is the
-  double-count the design exists to prevent, and it occurs on an ordinary turn,
-  not an edge case.
-- Site attribution works off the DSH composition: route `ninerelay` → its
-  configured `baseURL` → registered site.
-- A from-scratch rebuild produced byte-identical rows, with zero unattributed.
-- The relay's own record of the same call agreed exactly on both token figures,
-  and its charge was reproduced independently from the ratios it published.
-
-The residual 0.000006 CNY is this test's hand-built rate table rounding, not a
-discrepancy at the relay.
-
-## Track A — persistence
-
-Storage uses Node's built-in `node:sqlite` (`DatabaseSync`), verified working
-on Node 22.23.1. It keeps the package at zero runtime dependencies.
-
-- [ ] SQLite rollup schema keyed by `(day, site, provider, model)`.
-- [ ] Checkpoint store: `(sessionId → consumedSeq, logRevision)`.
-- [ ] Session discovery via `listSnapshots()` revisions; incremental
-      `readFrom(id, consumedSeq + 1)`.
-- [ ] Full-rebuild path: `readFrom(id, 0)` over every session, tested as a
-      first-class operation rather than a recovery-only one.
-- [ ] CSV/JSON export.
-- [ ] Reindex, integrity, lag, and missing-usage diagnostics.
-
-Acceptance: a synthetic session that switches models mid-run, has one
-failed-but-billed request, and is interrupted and resumed produces totals
-matching a hand-computed expectation — before and after a full reindex, and
-byte-identical between an incremental fold and a from-scratch fold.
-
-## Track B — pricing and cost
-
-Pure functions over the buckets Phase 0 already produces. No I/O.
-
-- [ ] Rate table with explicit effective dates and currency.
-- [ ] DeepSeek official peak/off-peak windows, expressed as a timezone-anchored
-      schedule rather than a hardcoded offset.
-- [ ] Separate rates per bucket: uncached input, cache read, cache write,
-      output.
-- [ ] Per-site rate overrides — a relay sets its own prices and is the whole
-      reason a local estimate and a site's charge can legitimately differ.
-- [ ] Estimated cost stored beside the tokens that produced it, never
-      recomputed retroactively at a changed rate.
-- [ ] An unpriced model yields an explicit "no rate" result, never zero.
-
-Acceptance: repricing the same day's tokens under two rate tables yields two
-stored estimates that both survive, and neither rewrites the other.
-
-## Track C — relay billing adapters
-
-Standalone, no DSH dependency, so UsagePlane and other agents can consume them.
-Endpoints below were read from New API's router source, not its docs.
-
-New API — reachable with only an **API key** (`TokenAuthReadOnly`):
-
-- [ ] `GET /api/usage/token/` — granted, used, remaining quota. `summary`.
-- [ ] `GET /api/log/token` — that key's own request log. Potentially
-      `request`-level, which is better than the previously assumed
-      summary-only ceiling for key-based access.
-
-New API — reachable with a **user session/PAT** (`UserAuth`):
-
-- [ ] `GET /api/log/self` and `/api/log/self/search` — account-wide request log.
-- [ ] `GET /api/log/self/stat` — aggregated statistics.
-- [ ] `GET /api/data/self` — quota time series. `aggregate`.
-- [ ] `GET /api/user/self` — balance and quota.
-
-Sub2API:
-
-- [ ] `GET /v1/usage` with an API key — key-scoped totals, model statistics,
-      actual cost, subscription counters, wallet balance.
-- [ ] `/api/v1/usage` authenticated user adapter, if request-level logs are
-      needed and the deployment exposes them.
-
-Cross-cutting:
-
-- [ ] Recorded fixtures so every adapter is testable without a live account.
-- [ ] Credentials in an OS-protected or existing DSH credential store. Always
-      an `Authorization` header, never a query string — `?key=...` leaks into
-      browser history, reverse-proxy logs, and diagnostics.
-- [ ] Every adapter reports which evidence level its data can support, rather
-      than the caller assuming.
-
-## Track D — reconciliation
-
-Starts once Track C's normalized fact shape is agreed; does not wait for
-finished adapters. The DSH side it compares against, `bySite()`, already exists.
-
-- [ ] Normalized billing fact: site, window, model?, tokens?, cost?, currency?,
-      quota?, balance?, evidence level, fetched-at.
-- [ ] Comparison emitting `request | aggregate | summary` and never claiming a
-      level its inputs cannot support.
-- [ ] Keep estimated cost, reported cost, quota, wallet balance, and currency
-      as five separate facts; never silently add or convert.
-- [ ] Report the difference, its direction, and the freshness of both sides.
-
-Acceptance: two sites serving the same model each produce that site's DSH
-totals beside the site's own reported figures, with an honestly labelled
-evidence level and a stated difference.
-
-## Track E — plugin surface and listing
-
-The tail, and the gate for the ecosystem submissions recorded above.
-
-- [ ] Cordis plugin registering the collector on the session event seam.
-- [ ] `dsh.bundle` manifest in `package.json` and a `cordis.patch.yml` — both
-      are hard requirements of the largest curated index.
-- [ ] Web UI page: model-first usage, relay-site filter, date ranges.
-- [ ] Separate site-centric reconciliation page: exact domain, site type, data
-      freshness, balance, reported cost, local estimate, difference, level.
-- [ ] Publish to npm.
-- [ ] **Open the four index submissions in the same session** — see the
-      ecosystem listing gate above.
+**Unverified lead:** `dshworks/awesome-dsh-plugins` (created 2026-08-13) lists
+entries with a version column sourced from package metadata, which suggests
+automatic pickup on npm publish. It has already starred this repository without
+listing it — consistent with the crawler skipping an unpublished package. Worth
+confirming before opening a PR that may be unnecessary.
 
 ## Later — beyond DSH (conditional)
 
-Reconciliation has nothing to do with which agent spent the tokens; it depends
-only on where the tokens were bought. Only pursue once A–E are solid.
+Attribution and reconciliation depend on where tokens were bought, not on which
+agent spent them. Only pursue once the plan above is solid.
 
 - [ ] Extract the relay adapters as their own published package.
 - [ ] Pluggable usage sources so Claude Code, Codex, or OpenCode logs can feed
-      the same reconciliation engine.
+      the same engine.

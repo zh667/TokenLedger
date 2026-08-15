@@ -1,7 +1,7 @@
 {
   "name": "dsh-tokenledger",
   "version": "0.0.1",
-  "description": "Token usage accounting for DeepSeek Harness, reconciled against New API and Sub2API relay-site billing",
+  "description": "Token usage accounting for DeepSeek Harness, attributed to the relay site that served each request — no configuration, no credentials",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -11,6 +11,7 @@
   "exports": {
     ".": "./src/index.js",
     "./usage": "./src/usage.js",
+    "./discovery": "./src/discovery.js",
     "./relay-sites": "./src/relay-sites.js",
     "./pricing": "./src/pricing.js",
     "./store": "./src/store.js",
@@ -49,5 +50,16 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1"
   }
 }

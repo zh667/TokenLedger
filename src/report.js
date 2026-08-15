@@ -195,9 +195,9 @@ export function renderReport(input) {
 	}
 
 	// Attribution has two levels. Provider routes are free — the name rides every
-	// record — so an unconfigured install still answers "where did it go". Relay
-	// sites are the configured grouping, and the only level that can carry
-	// billing evidence.
+	// record — so any install answers "where did it go". Relay sites are the
+	// grouping by origin, discovered from the host's provider configuration
+	// rather than configured here, and the level that can carry billing evidence.
 	const configured = sites.some((s) => s.site !== "direct");
 	out.push("");
 	if (configured) {
@@ -212,9 +212,12 @@ export function renderReport(input) {
 		const rows = providers.map((p) => [p.provider === UNKNOWN_LABEL ? "未知路由" : p.provider, num(p.tokens)]);
 		out.push(...table([{ title: "" }, { title: "tokens", align: "right" }], rows).slice(1).map((l) => `  ${l}`));
 		out.push("");
-		out.push("  想把路由归到中转站并核对账单，在插件配置里加 `relays`（每个中转站一行）：");
-		out.push("    relays:");
-		out.push(`      ${providers[0].provider}: https://你的中转站域名/v1`);
+		// Sites are read from DSH's own provider configuration, so an empty site
+		// list normally means "direct", not "you forgot to configure something".
+		// Only the case where that read failed is actionable, and it is the one
+		// this line names.
+		out.push("  没有发现中转站——直连的话这就是全部。");
+		out.push("  如果你在用中转站却没显示，用 `/tokenledger site add <路由名> <地址>` 补一条。");
 	}
 
 	// Anything the comparison refused to do is stated, not omitted.

@@ -81,4 +81,6 @@ export {
 
 export { compact, money, num, reasonText, renderReconciliation, renderReport, sparkline, table } from "./report.js";
 
-export { runCommand, sweep } from "./plugin.js";
+export { buildResolver, normalizeRelayConfig, runCommand, sweep } from "./plugin.js";
+
+export { discoverFromContext, discoverSites, mergeSites, readAtPath } from "./discovery.js";

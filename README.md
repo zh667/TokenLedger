@@ -1,26 +1,20 @@
 # TokenLedger
 
-> 🚧 **早期开发中**：已作为 DSH 插件在真实 DSH 中跑通全链路；Web UI 页面尚未完成，也未发布 npm。
+> 🚧 **早期开发中**：已作为 DSH 插件在真实 DSH 中跑通全链路；界面尚未完成，也未发布 npm。
 
 > ⚠️ **非官方声明**：TokenLedger 是独立的第三方社区项目，与 DeepSeek 无隶属、赞助或背书关系。「DeepSeek」及相关商标归其权利人所有。
 
-**统计 DeepSeek Harness 的 Token 消耗，并和 New API、Sub2API 中转站的实际扣费对账。**
+**统计 DeepSeek Harness 的 Token 消耗，并归属到实际服务这次请求的中转站——不用配置，不用凭据。**
 
-用量统计本身在 DSH 生态里已经有几十个实现。TokenLedger 存在的理由是它们都缺的那一半：**你的用量记录里没有「这笔钱花在哪个中转站」，所以永远对不上中转站的账单。**
+用量统计本身在 DSH 生态里已经有几十个实现。TokenLedger 存在的理由是它们都缺的那一维：**你的用量记录里没有「这笔花在哪个中转站」。**
 
 ## 它解决什么问题
 
-你在两个中转站买了 `deepseek-v4` 的额度。月底一个站说你花了 ¥47，另一个说 ¥89。你手里有 DSH 的会话日志，但日志里只有 provider 路由名和模型名，没有站点身份——你无法回答「这 ¥89 里有多少是我真的发出去的请求」。
+你在两个中转站买了 `deepseek-v4` 的额度。月底一个站说你花了 ¥47，另一个说 ¥89。你手里有 DSH 的会话日志，但日志里只有 provider 路由名和模型名，没有站点身份——你答不出「这 ¥89 对应我发出去的多少 token」。
 
-TokenLedger 把 `(中转站, Provider, 模型)` 作为一等维度记录下来，再去读两个站自己的账单 API，把两边并排放，并**明确标注这次比对的证据等级**：
+TokenLedger 把 `(中转站, Provider, 模型)` 作为一等维度记录下来。中转站身份不需要你告诉它：**你在 DSH 的 provider 设置里填过一次 Base URL，那份配置宿主自己就能交出来**，插件读到之后按 origin 分组，域名就是站名。
 
-| 等级 | 含义 |
-|---|---|
-| `request` | 有共享的请求标识，能一一对应 |
-| `aggregate` | 按站点、模型、时间窗聚合比对 |
-| `summary` | 站点只暴露累计额度/余额，无法细分 |
-
-只有汇总数据时，界面不会假装是 `request` 级。估算费用、站点扣费、钱包余额、内部额度单位是四种不同的事实，永远不会被静默相加或换算。
+> **关于账单对账**：仓库里有一套能读 New API / Sub2API 账单并复算扣费的引擎，用 1960 行真实消费记录验证过（0 条无法解释）。但它**目前只是库函数，没有接到配置上，普通用户用不了**——而且 New API 的逐请求消费日志是管理员接口，现实中只有站主能读。所以它不是本插件的主线功能，详见 [`docs/ROADMAP.md`](docs/ROADMAP.md)。
 
 ## 现在能用的部分
 
@@ -41,9 +35,11 @@ const resolveSite = createSiteResolver(registry, {
 
 const days = foldUsage(sessionEvents, { resolveSite });
 
-bySite(days);            // 按中转站汇总——对账用的 DSH 侧数字
+bySite(days);            // 按中转站汇总
 byModel(days, {}, "nine"); // 只看某个站的模型分布
 ```
+
+作为插件跑的时候上面这段不用写：`resolveSite` 由 `discovery.js` 从宿主的 provider 配置直接推出来。这个库入口是给 UsagePlane 这类外部消费者用的。
 
 ## 三个别人会做错的地方
 
@@ -65,7 +61,9 @@ byModel(days, {}, "nine"); // 只看某个站的模型分布
 
 ## 状态
 
-共 **128 个测试**，零运行时依赖（SQLite 用 Node 内置的 `node:sqlite`）。
+共 **152 个测试**。运行时依赖只有一个可选 peer：`@deepseek-ai/schemastery`，用来声明 settings 命名空间。它已经在 DSH 的依赖树里，用户不会因此多装任何东西；没有它插件照常跑，只是配置退回 `cordis.patch.yml` 且 `/tokenledger site` 存不了盘。SQLite 用 Node 内置的 `node:sqlite`。
+
+（早期版本宣称「零运行时依赖」。加上这个 peer 之后那句话不再成立，所以撤回。）
 
 | 模块 | 状态 |
 |---|---|
@@ -77,29 +75,31 @@ byModel(days, {}, "nine"); // 只看某个站的模型分布
 | 费率表（生效日期 / 分桶计价 / 峰谷时段） | ✅ |
 | 费用估算（未定价返回 null 而非 0） | ✅ |
 | CSV / JSON 导出与索引诊断 | ✅ |
-| New API 适配器（余额 / 聚合 / 请求级 + 扣费复算） | ✅ |
-| Sub2API 适配器（余额 / 累计 / 双费用口径） | ✅ |
 | 中转站软件指纹识别（零凭证） | ✅ |
-| 对账引擎（证据等级 / 拒绝不可比） | ✅ |
+| **中转站自动发现**（读宿主 provider 配置，零配置） | ✅ |
+| `/tokenledger site add\|rm\|list`（不用改文件） | ✅ |
 | 接真实 DSH 会话日志 | ✅ 已端到端验证 |
 | DSH 插件封装（`dsh.bundle` + Cordis 行） | ✅ 已在真实 DSH 里跑通 |
 | `/tokenledger` 报表命令 | ✅ |
-| 原生 settings 页面 | ⬜ 见下 |
+| New API 适配器（余额 / 聚合 / 请求级 + 扣费复算） | ⚠️ 库函数可用，**未接到配置** |
+| Sub2API 适配器（余额 / 累计 / 双费用口径） | ⚠️ 库函数可用，**未接到配置** |
+| 对账引擎（证据等级 / 拒绝不可比） | ⚠️ 库函数可用，**用户无法触达** |
+| 侧栏面板 | ⬜ 见下 |
 | 发 npm / 提交索引收录 | ⬜ |
 
-### 原生页面为什么还没做
+那三条 ⚠️ 之前标的是 ✅。引擎本身确实是 ✅，但 `collectReconciliations` 读的是 `config.billing[站点id]`——一个**函数**的映射，YAML 里写不出来，只有测试能注入；`NewApiClient` / `Sub2ApiClient` 在插件路径里一次都没有被构造。所以对真实用户来说这个功能是不通的，标 ✅ 属于失实。
 
-不是在等版本号。整个 DSH 都还在 rc——本项目宿主侧依赖的 `dsh-session`、`dsh-session-persistence`，和客户端那套包，全都是 `0.1.0-rc.6`，同一个版本线。拿 rc 当客户端的门槛，对宿主侧就是双标。
+### 界面为什么还没做
 
-（顺带一个坑：这些库包的 npm `latest` 标签还停在 `0.0.1-rc.1`，真正在用的版本在 `next` 上。`npm view <包> version` 读的是 `latest`，会给你一个过期的数字。）
+**设置页里那张插件配置卡片：进不去。** `dsh-host-apiproxy` 用一个硬编码的七项白名单（`agent-loop`、`shell`、`locale`、`permission`、`ui-conversation`、`ui-theme`、`web-search-deepseek`）决定哪些 settings 命名空间能下发给浏览器，其余一律 `settings-not-exposed`。上游自己把改法记为待办：
 
-而且他们两天发了 7 个版本、公开当天 3 小时内发了 3 次，没有任何稳定下来的迹象——这种东西不该进计划的里程碑。
+> Moving that declaration to `settings.register()`, so a plugin can expose its own configuration without a change in this package, is deferred work.
 
-真实的差别在依赖的性质：宿主侧依赖的是**数据契约**（事件形状、字段名），改了会破坏所有已存在的会话日志，所以它在物理上就很稳；客户端侧要依赖的是 **8 个包的 React 接口**，纯代码接口没有历史包袱，改起来没代价。再加上一条打包链和一套 Remote RPC。
+注意这只挡**浏览器**那条 settings RPC。宿主侧的 `ctx.settings.get/register/update` 不受影响——自动发现和 `/tokenledger site` 正是靠它做到的。
 
-而原生页面相对现在的文字报表，唯一增量是**交互**——筛选从敲参数变成点击。文字报表已经能回答全部问题。
+**侧栏入口：能做，故意先不做。** 位置是 `sidebar.footer.action`（齿轮旁边那一排，`list` 插槽，目前只有一个占用者），面板挂 `shell.overlay`，抄 `dsh-client-ui-cordis` 十来行就能注册。代价是要带一个 React 浏览器半边、约 6 个 `@deepseek-ai/dsh-client-*` peer 依赖、一条本包现在没有的打包链，以及一块零测试覆盖的表面；还有一个没查清的点：第三方插件怎么注册自己的 RPC 给面板取数。
 
-所以触发条件是需求，不是版本号：**有人说「报表能用，但我想点筛选器」的时候再做。**
+顺序上先把命令行这边补完整，再给一个完整的能力加入口，而不是给半截功能加壳。
 
 ### 作为 DSH 插件安装
 
@@ -109,27 +109,49 @@ dsh plugin --profile web add github:zh667/TokenLedger
 
 **就这一条。** `dsh plugin` 转发给 pnpm；因为本包声明了 `dsh.bundle`，DSH 会自动把它登记进该 profile 的 `dsh.profile.bundles`，bundle patch 随即自动挂载插件行——不需要改 `package.json`，也不需要手写任何 YAML。
 
-零配置即可用，而且**已经有归属**：报表按 Provider 路由分组，路由名本来就在每条用量记录里，不需要任何配置。
+**装完就行，没有第二步。** 中转站是自动发现的：
 
-配置 `relays` 是第二层——把多个路由归到同一个中转站，并解锁账单对账。基础归属不该等这一步。
-
-想要中转站维度，在该 profile 的 `cordis.patch.yml` 里加三行：
-
-```yaml
-- id: tokenledger
-  config:
-    relays:
-      my-route: https://relay.example.com/v1
+```js
+ctx.llm.listConfigurableProviders()   // 每条 provider 路由的配置存放位置
+ctx.settings.get(那个命名空间)         // 沿 settingsPath 走到 profile，取 baseURL
 ```
 
-`my-route` 是 `dsh-llm-pi-ai` 的 `config.providers` 下的键名，也就是每条 assistant 消息上 `AssistantProvenance.provider` 的值。**这是唯一一个本代码推导不出来的东西**——站点 id（取精确域名）和站点跑的哪套软件（指纹识别）都会自动得出。要覆盖就用长形式：
+按 origin 分组，域名就是站名，跑的哪套软件由后台指纹识别得出（不用凭据）。**profile 里紧挨着 `baseURL` 的那个凭据引用一个字节都不读**——只取 `baseURL` 这一个字段，站点记录本身也拒收 `apiKey` / `token`，两道。
+
+想看发现到了什么：
+
+```
+/tokenledger site
+```
+
+有两种情况自动发现覆盖不到：组合里没挂 settings 服务；或者 provider 是 agent preset 在 `agent.cordis.yml` 里挂的（那种注册不了 settings 命名空间）。这时手动补一条，也不用开文件：
+
+```
+/tokenledger site add <路由名> <地址>
+```
+
+路由名是 `dsh-llm-pi-ai` 的 `config.providers` 下的键名，也就是每条 assistant 消息上 `AssistantProvenance.provider` 的值——上面 `site list` 会把已知的路由列出来给你抄。
+
+要写进文件也可以，`settings.yaml` 里加一段（改了热更新，不用重启）：
 
 ```yaml
-      my-route:
-        baseUrl: https://relay.example.com/v1
-        id: my-label
-        type: sub2api
+tokenledger:
+  relays:
+    my-route: https://relay.example.com/v1
 ```
+
+手动配置是**覆盖**，优先级高于自动发现——你会写它，正是因为自动那份不对。要改站名或站点类型就用长形式：
+
+```yaml
+tokenledger:
+  relays:
+    my-route:
+      baseUrl: https://relay.example.com/v1
+      id: my-label
+      type: sub2api
+```
+
+> 归属是在**折叠时**写死进记录的，历史永不重写。所以中转站集合发生变化时，插件会丢弃索引并全量重建——否则报表会显示这个站「从被认出来那一刻才开始有流量」，读起来像是你刚开始用它。
 
 卸载：`dsh plugin --profile web remove dsh-tokenledger`。
 

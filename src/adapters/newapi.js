@@ -463,7 +463,7 @@ export class NewApiClient {
 export function summarizeRows(rows) {
 	const byKey = new Map();
 	for (const row of rows) {
-		const key = `${row.day} ${row.model}`;
+		const key = `${row.day}\u0000${row.model}`;
 		let bucket = byKey.get(key);
 		if (bucket === undefined) {
 			bucket = {
