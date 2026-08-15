@@ -9,7 +9,9 @@ import {
 	bySite,
 	cacheHitRate,
 	createUsageState,
+	dailyModels,
 	foldUsage,
+	hostTimeZone,
 	mergeInto,
 	renderUsage,
 	routeKey,
@@ -224,4 +226,52 @@ test("renderUsage emits ascending days with descending routes", () => {
 	assert.deepEqual(wire.days[1].routes.map((r) => r.model), ["big", "small"]);
 	assert.equal(wire.total.tokens, 1117);
 	assert.equal(wire.updatedAt, 1234);
+});
+
+// --- day-key arithmetic and the per-day model fold --------------------------
+//
+// These moved here with the functions: they are folds over rollup rows and
+// local-day arithmetic, which is what this module is. They lived in the HTTP
+// tests only because the code did.
+
+test("one model reached through two relays is one row, not two halves", () => {
+	// byRoute is keyed by (day, site, provider, model), so the day tooltip listed
+	// the same model twice — each showing half its real total and half its real
+	// share. Seen in a browser, not in a test.
+	const merged = dailyModels([
+		{ day: "2026-08-14", site: "a.example", model: "gpt", tokens: 64552 },
+		{ day: "2026-08-14", site: "direct", model: "gpt", tokens: 10170 },
+		{ day: "2026-08-14", site: "direct", model: "claude", tokens: 0 },
+		{ day: "2026-08-13", site: "direct", model: "gpt", tokens: 5 }
+	]);
+	assert.deepEqual(merged, [
+		{ day: "2026-08-13", model: "gpt", tokens: 5 },
+		{ day: "2026-08-14", model: "gpt", tokens: 74722 }
+	]);
+});
+
+test("a model that ran nothing that day is not part of that day's breakdown", () => {
+	assert.deepEqual(dailyModels([{ day: "d", model: "idle", tokens: 0 }]), []);
+});
+
+test("rows are ordered by day, then by size within the day", () => {
+	const rows = dailyModels([
+		{ day: "2026-08-14", model: "small", tokens: 1 },
+		{ day: "2026-08-14", model: "big", tokens: 100 },
+		{ day: "2026-08-12", model: "mid", tokens: 50 }
+	]);
+	assert.deepEqual(rows.map((r) => r.model), ["mid", "big", "small"]);
+});
+
+test("the offset's sign is inverted from getTimezoneOffset, which counts west", () => {
+	// getTimezoneOffset returns minutes WEST of UTC, so Tokyo (UTC+9) reports
+	// -540. Printing it unflipped would label every eastern zone as western.
+	const tokyo = hostTimeZone({ getTimezoneOffset: () => -540 });
+	assert.equal(tokyo.offset, "UTC+09:00");
+	const newYork = hostTimeZone({ getTimezoneOffset: () => 300 });
+	assert.equal(newYork.offset, "UTC-05:00");
+	// Half-hour and quarter-hour zones exist and must not round away.
+	assert.equal(hostTimeZone({ getTimezoneOffset: () => -330 }).offset, "UTC+05:30");
+	assert.equal(hostTimeZone({ getTimezoneOffset: () => -345 }).offset, "UTC+05:45");
+	assert.equal(hostTimeZone({ getTimezoneOffset: () => 0 }).offset, "UTC+00:00");
 });
