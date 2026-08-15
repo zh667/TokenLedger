@@ -110,6 +110,13 @@ async function loadBundle(options = {}) {
 		setState: (index, value) => {
 			stateCells[index] = value;
 		},
+		readState: (index) => stateCells[index],
+		/** Run every effect the last render registered, returning them. */
+		runEffects: () => {
+			const pending = effects.splice(0);
+			for (const fn of pending) fn();
+			return pending;
+		},
 		renderWithState: (Component, props, cells) => {
 			cell = 0;
 			stateCells = cells.slice();
@@ -913,3 +920,50 @@ test("a panel that has never swept says so rather than claiming to be current", 
 	const text = textOf(render(exports.Footer, { data: { diagnostics: {} }, translate: T }));
 	assert.ok(text.includes("footer.never"));
 });
+
+test("a press outside closes the panel; one inside does not", async () => {
+	const harness = await loadBundle();
+	const listeners = [];
+	globalThis.document.addEventListener = (type, fn, capture) => listeners.push({ type, fn, capture });
+	globalThis.document.removeEventListener = () => {};
+	try {
+		// [open, range, site, account, nonce]
+		harness.renderWithState(exports_of(harness).TokenLedgerPanel, { wide: true }, [true, "all", undefined, undefined, 0]);
+		harness.runEffects();
+
+		const onDown = listeners.find((l) => l.type === "pointerdown");
+		assert.ok(onDown, "the panel listens for a press while it is open");
+		assert.equal(onDown.capture, true, "capture, so a handler that stops propagation cannot trap it open");
+
+		// The ref is never attached by this stub renderer, so `contains` is asked
+		// of nothing — which must not close the panel either, or a render race
+		// would dismiss it.
+		onDown.fn({ target: {} });
+		assert.equal(harness.readState(0), true, "an unattached root must not be read as 'outside'");
+	} finally {
+		delete globalThis.document.addEventListener;
+		delete globalThis.document.removeEventListener;
+	}
+});
+
+test("the outside-press listener is only registered while the panel is open", async () => {
+	// A global handler that outlives the panel would swallow presses from
+	// whatever owns the page next.
+	const harness = await loadBundle();
+	const listeners = [];
+	globalThis.document.addEventListener = (type, fn) => listeners.push(type);
+	globalThis.document.removeEventListener = () => {};
+	try {
+		harness.render(exports_of(harness).TokenLedgerPanel, { wide: true }); // closed
+		harness.runEffects();
+		assert.equal(listeners.includes("pointerdown"), false);
+	} finally {
+		delete globalThis.document.addEventListener;
+		delete globalThis.document.removeEventListener;
+	}
+});
+
+/** The bundle's exports, named for readability at the call sites above. */
+function exports_of(harness) {
+	return harness.exports;
+}

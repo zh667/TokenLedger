@@ -1268,21 +1268,39 @@ window.__ModuleLoader__.load({
 			const reload = () => setNonce((n) => n + 1);
 			const translate = translateWith(t);
 
-			// Escape closes, and only while open: a global listener that outlives
-			// the panel would swallow the key from whatever owns it next.
+			// Escape and a click anywhere else both close, and both listeners exist
+			// only while open: a global handler that outlives the panel would
+			// swallow the key, or the click, from whatever owns it next.
+			//
+			// The badge lives inside `root` too, so its own toggle handles it and
+			// this does not fire — otherwise clicking the badge to close would
+			// close and immediately reopen.
+			//
+			// `pointerdown` rather than `click`: a press that starts inside the
+			// panel and drifts out (selecting a figure to copy, dragging the
+			// activity strip) must not be read as a dismissal.
+			const root = react.useRef(null);
 			react.useEffect(() => {
 				if (!open) return undefined;
 				const onKey = (event) => {
 					if (event.key === "Escape") setOpen(false);
 				};
+				const onDown = (event) => {
+					if (root.current !== null && !root.current.contains(event.target)) setOpen(false);
+				};
 				window.addEventListener("keydown", onKey);
-				return () => window.removeEventListener("keydown", onKey);
+				document.addEventListener("pointerdown", onDown, true);
+				return () => {
+					window.removeEventListener("keydown", onKey);
+					document.removeEventListener("pointerdown", onDown, true);
+				};
 			}, [open]);
 
 			const busy = state.status === "loading";
 			const totalLabel = state.data === undefined ? "" : fmt(state.data.totals?.tokens);
 
 			return jsxs("div", {
+				ref: root,
 				className: wide === false ? `${S.layer} ${S.rail}` : S.layer,
 				children: [
 					jsxs("button", {
