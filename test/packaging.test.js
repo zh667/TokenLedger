@@ -65,6 +65,24 @@ test("every file the manifest points at is shipped", () => {
 	assert.ok(shipped.includes(pkg.dsh.bundle.patch.replace(/^\.\//, "")), "the bundle patch must ship");
 });
 
+test("no official @deepseek-ai package is a hard dependency", () => {
+	// The host already has these loaded; listing one under `dependencies` makes
+	// npm install a second copy beside the host's, and a schema class from the
+	// duplicate is not the class the host's `settings.register` expects. The
+	// ecosystem indexes reject on this too. Our one use is a dynamic import
+	// behind a handled failure, so `optional` is honest.
+	for (const name of Object.keys(pkg.dependencies ?? {})) {
+		assert.equal(name.startsWith("@deepseek-ai/"), false, `${name} must be a peer, not a dependency`);
+	}
+	for (const name of Object.keys(pkg.peerDependencies ?? {})) {
+		assert.equal(
+			pkg.peerDependenciesMeta?.[name]?.optional,
+			true,
+			`${name} is loaded through a dynamic import the caller recovers from, so it must be an optional peer`
+		);
+	}
+});
+
 test("every local image the README shows is shipped", () => {
 	// README.md is in `files`, so npm renders it on the package page — but it
 	// renders with the tarball's own contents. An image the repository has and
