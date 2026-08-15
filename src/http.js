@@ -50,9 +50,18 @@ export const BASE_PATH = "/api/tokenledger";
 export const USAGE_PATH = `${BASE_PATH}/usage`;
 export const BALANCE_PATH = `${BASE_PATH}/balance`;
 
+/** How many days the activity strip covers: twelve whole weeks. */
+export const ACTIVITY_DAYS = 84;
+
 /** `YYYY-MM-DD` for N days back, inclusive of today. */
 function fromDaysAgo(days) {
 	return dayKey(Date.now() - (days - 1) * 86_400_000);
+}
+
+/** First day of the current month, in local time — the store keys days that way. */
+function monthStart() {
+	const now = new Date();
+	return dayKey(new Date(now.getFullYear(), now.getMonth(), 1).getTime());
 }
 
 /**
@@ -130,6 +139,20 @@ export function usagePayload(deps, query) {
 		site,
 		totals: store.totals(range, site),
 		days: store.byDay(range, site),
+		// The three windows the panel shows side by side, each a whole figure
+		// rather than a slice of the selected range: "today" and "this month" and
+		// "all time" are the questions people actually ask, and reading them off
+		// one selector means changing it three times.
+		windows: {
+			today: store.totals({ from: dayKey(Date.now()) }, site),
+			month: store.totals({ from: monthStart() }, site),
+			all: store.totals({}, site)
+		},
+		// The activity strip has its OWN window, deliberately. Tied to the
+		// selected range it collapsed to a single cell whenever "today" was
+		// picked — a heatmap of one day is not a heatmap, and it read as broken.
+		// A fixed trailing twelve weeks is always shaped like a strip.
+		activity: store.byDay({ from: fromDaysAgo(ACTIVITY_DAYS) }, site),
 		models: store.byModel(range, site),
 		// Site rows are never filtered by the current selection: the breakdown is
 		// how you CHANGE that selection, so hiding the others would strand you.

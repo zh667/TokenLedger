@@ -188,7 +188,7 @@ test("closed renders the badge alone; open adds the panel", async () => {
 	assert.equal(closed.props.children.filter(Boolean).length, 1, "a closed seat must not mount the panel");
 
 	// [open, range]
-	const open = renderWithState(exports.TokenLedgerPanel, { wide: true }, [true, "30"]);
+	const open = renderWithState(exports.TokenLedgerPanel, { wide: true }, [true, "all"]);
 	const panel = open.props.children.filter(Boolean)[1];
 	assert.equal(panel.props.role, "dialog");
 });
@@ -221,13 +221,16 @@ test("an absent figure is an em dash, never a zero", async () => {
 	assert.equal(exports.fmt(0), "0");
 });
 
-test("the range tabs mirror the command's day argument", async () => {
+test("the three windows are today, the calendar month, and all time", async () => {
+	// A header selector meant changing it three times to read the three numbers
+	// everyone wants at once. The cards answer all three and double as the
+	// switch, so these are windows first and a control second.
 	const { exports } = await loadBundle();
-	assert.deepEqual(
-		exports.RANGES.map((r) => r.days),
-		[1, 7, 30, undefined],
-		"`all` must send no days parameter at all"
-	);
+	assert.deepEqual(exports.RANGES.map((r) => r.id), ["today", "month", "all"]);
+	assert.equal(exports.RANGES[0].days(), 1);
+	// The calendar month, not a rolling thirty days.
+	assert.equal(exports.RANGES[1].days(), new Date().getDate());
+	assert.equal(exports.RANGES[2].days(), undefined, "`all` must send no days parameter at all");
 });
 
 // --- the panel body ----------------------------------------------------------
@@ -260,12 +263,30 @@ const T = (key, params) => {
 	return `${key}:${Object.values(params).join(",")}`;
 };
 
+/** `YYYY-MM-DD` for N days back in LOCAL time, matching how the store keys days. */
+const dayBack = (n) => {
+	const d = new Date();
+	d.setHours(0, 0, 0, 0);
+	d.setDate(d.getDate() - n);
+	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+const todayKey = () => dayBack(0);
+
 const payload = (over = {}) => ({
 	ok: true,
-	totals: { tokens: 77866, requests: 4 },
+	totals: { tokens: 77866, requests: 4, cacheHitRate: 28.8 },
+	windows: {
+		today: { tokens: 30781, requests: 1 },
+		month: { tokens: 47085, requests: 3 },
+		all: { tokens: 77866, requests: 4 }
+	},
+	activity: [
+		{ day: dayBack(1), tokens: 47085, requests: 3 },
+		{ day: dayBack(0), tokens: 30781, requests: 1 }
+	],
 	days: [
-		{ day: "2026-08-14", tokens: 47085, requests: 3 },
-		{ day: "2026-08-15", tokens: 30781, requests: 1 }
+		{ day: dayBack(1), tokens: 47085, requests: 3 },
+		{ day: dayBack(0), tokens: 30781, requests: 1 }
 	],
 	models: [
 		{ model: "deepseek-v4-pro", requests: 3, inputTokens: 27492, cacheReadTokens: 18560, outputTokens: 1033, cacheHitRate: 40.3 },
@@ -280,22 +301,46 @@ const payload = (over = {}) => ({
 	...over
 });
 
-test("the stat row shows an em dash for cost, never a zero, when nothing is priced", async () => {
+test("each card shows its own window, whichever one is selected", async () => {
+	// The whole reason for three cards: they are three answers, not three views
+	// of the selected one.
 	const { exports, render } = await loadBundle();
-	const text = textOf(render(exports.StatRow, { data: payload(), translate: T }));
-	assert.ok(text.includes("77,866"));
-	assert.ok(text.includes("—"), "an unpriced range must not read as free");
-	assert.equal(text.includes("0.00"), false);
+	const tree = render(exports.StatRow, { data: payload(), range: "today", onRange() {}, translate: T });
+	const text = textOf(tree);
+	assert.ok(text.includes("30,781"), "today");
+	assert.ok(text.includes("47,085"), "this month");
+	assert.ok(text.includes("77,866"), "all time");
+	const on = findAll(tree, "tkl_stat").filter((c) => "data-on" in c.props);
+	assert.equal(on.length, 1, "exactly one card reads as selected");
 });
 
-test("a priced range shows its currency, and two currencies are never added", async () => {
+test("clicking a card switches the range for everything below", async () => {
 	const { exports, render } = await loadBundle();
-	const text = textOf(
-		render(exports.StatRow, { data: payload({ priced: { totals: { CNY: 0.4381, USD: 1.5 } } }), translate: T })
+	const picked = [];
+	const tree = render(exports.StatRow, {
+		data: payload(),
+		range: "all",
+		onRange: (id) => picked.push(id),
+		translate: T
+	});
+	const cards = findAll(tree, "tkl_stat");
+	cards[0].props.onClick();
+	cards[1].props.onClick();
+	assert.deepEqual(picked, ["today", "month"]);
+});
+
+test("an unpriced range says so with an em dash, never a zero", async () => {
+	const { exports, render } = await loadBundle();
+	const bare = textOf(render(exports.StatCaption, { data: payload(), translate: T }));
+	assert.equal(bare.includes("caption.cost"), false, "no cost line at all when nothing is priced");
+	assert.equal(bare.includes("0.00"), false);
+
+	const priced = textOf(
+		render(exports.StatCaption, { data: payload({ priced: { totals: { CNY: 0.4381, USD: 1.5 } } }), translate: T })
 	);
-	assert.ok(text.includes("¥0.4381"));
-	assert.ok(text.includes("$1.50"));
-	assert.ok(text.includes("+"), "separate currencies stay separate");
+	assert.ok(priced.includes("¥0.4381"));
+	assert.ok(priced.includes("$1.50"));
+	assert.ok(priced.includes("+"), "separate currencies stay separate");
 });
 
 test("the site breakdown lists every site even while one is selected", async () => {
@@ -330,14 +375,31 @@ test("direct is labelled, not shown as the raw key", async () => {
 	assert.ok(text.includes("api.9zyx.xyz"));
 });
 
-test("the activity strip pads to whole weeks and scales to the busiest day in view", async () => {
+test("the activity strip keeps its shape whatever range is selected", async () => {
+	// Tied to the selected range it collapsed to a single cell on "today",
+	// leaving a mostly empty seven-row grid that read as a broken chart rather
+	// than as a quiet day. It has its own fixed window now.
 	const { exports, render } = await loadBundle();
 	const tree = render(exports.ActivityStrip, { data: payload(), translate: T });
 	const cells = findAll(tree, "tkl_cell");
-	assert.equal(cells.length, 2, "one cell per day in range");
-	// 47,085 is the max, so it is level 4; 30,781 is 65% of it, so level 3.
-	assert.deepEqual(cells.map((c) => c.props["data-l"]), ["4", "3"]);
-	assert.ok(findAll(tree, "tkl_cellPad").length > 0, "the first week must start on its weekday");
+	assert.equal(cells.length, exports.ACTIVITY_DAYS, "one cell per day of the fixed window");
+	// Idle days are present as level zero rather than absent.
+	assert.ok(cells.some((c) => c.props["data-l"] === "0"));
+	assert.ok(cells.some((c) => c.props["data-l"] === "4"), "the busiest day in the window anchors the ramp");
+	// Whole weeks: padding either side so columns line up on a weekday.
+	const total = cells.length + findAll(tree, "tkl_cellPad").length;
+	assert.equal(total % 7, 0, `grid is not whole weeks: ${total}`);
+});
+
+test("the strip reads its own window, not the selected range's days", async () => {
+	const { exports, render } = await loadBundle();
+	// `days` here is a single day, as "today" would give; `activity` is the real
+	// window. Reading the wrong one is what produced the one-cell chart.
+	const tree = render(exports.ActivityStrip, {
+		data: payload({ days: [{ day: todayKey(), tokens: 5, requests: 1 }] }),
+		translate: T
+	});
+	assert.equal(findAll(tree, "tkl_cell").length, exports.ACTIVITY_DAYS);
 });
 
 test("an idle day is level zero and a barely-used one is not", async () => {

@@ -64,6 +64,8 @@ window.__ModuleLoader__.load({
 		const NS = "tokenLedger";
 		const USAGE_PATH = "/api/tokenledger/usage";
 		const BALANCE_PATH = "/api/tokenledger/balance";
+		/** Twelve whole weeks; must match the host's window or the strip has holes. */
+		const ACTIVITY_DAYS = 84;
 
 		//#region style
 		//
@@ -132,10 +134,13 @@ window.__ModuleLoader__.load({
 			".tkl_retry:hover{background:var(--dsw-alias-interactive-bg-hover)}",
 
 			// -- the range selector ------------------------------------------------
-			".tkl_ranges{display:flex;gap:2px;align-items:center}",
-			".tkl_range{color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:var(--tkl-radius-xs);padding:3px 8px;font:inherit;font-size:12px;line-height:18px}",
-			".tkl_range:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}",
-			".tkl_range[data-on]{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}",
+			// The stat cards ARE the range control, so they are buttons that read
+			// as cards rather than a separate selector duplicating the same three
+			// words in the header.
+			".tkl_stat{cursor:pointer;font:inherit;text-align:left;transition:background .12s}",
+			".tkl_stat:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+			".tkl_stat[data-on]{border-color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-interactive-bg-active)}",
+			".tkl_caption{color:var(--dsw-alias-label-tertiary);margin:6px 0 0;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums}",
 
 			// -- sections ----------------------------------------------------------
 			".tkl_section{margin-top:14px}",
@@ -188,7 +193,11 @@ window.__ModuleLoader__.load({
 			".tkl_sortMark{color:var(--dsw-alias-label-secondary);margin-left:2px}",
 
 			// -- balance -----------------------------------------------------------
-			".tkl_balance{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--tkl-radius-sm);padding:9px 11px;display:flex;align-items:baseline;gap:8px}",
+			".tkl_balance{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--tkl-radius-sm);padding:9px 11px;display:flex;align-items:center;gap:8px}",
+			".tkl_balanceMain{min-width:0}",
+			".tkl_balanceWho{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}",
+			".tkl_balanceOk{color:var(--dsw-alias-state-success-primary)}",
+			".tkl_balanceBad{color:var(--dsw-alias-state-warn-primary)}",
 			".tkl_balanceAmount{color:var(--dsw-alias-label-primary);font-size:16px;line-height:22px;font-weight:600;font-variant-numeric:tabular-nums}",
 			".tkl_balanceMeta{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;margin-left:auto;text-align:right}",
 
@@ -229,8 +238,7 @@ window.__ModuleLoader__.load({
 			note: "tkl_note",
 			error: "tkl_error",
 			retry: "tkl_retry",
-			ranges: "tkl_ranges",
-			range: "tkl_range",
+			caption: "tkl_caption",
 			section: "tkl_section",
 			sectionTitle: "tkl_sectionTitle",
 			filter: "tkl_filter",
@@ -255,6 +263,10 @@ window.__ModuleLoader__.load({
 			hit: "tkl_hit",
 			sortMark: "tkl_sortMark",
 			balance: "tkl_balance",
+			balanceMain: "tkl_balanceMain",
+			balanceWho: "tkl_balanceWho",
+			balanceOk: "tkl_balanceOk",
+			balanceBad: "tkl_balanceBad",
 			balanceAmount: "tkl_balanceAmount",
 			balanceMeta: "tkl_balanceMeta",
 			footer: "tkl_footer",
@@ -266,12 +278,23 @@ window.__ModuleLoader__.load({
 
 		//#region data
 
-		/** The ranges the header offers, mirroring the command's day argument. */
+		/**
+		 * The three windows, which are also the range control.
+		 *
+		 * A separate selector in the header made you change it three times to
+		 * read three numbers everyone wants at once. Showing the windows as
+		 * cards answers all three at a glance and doubles as the switch for
+		 * everything below.
+		 *
+		 * `days` is what the request asks for; the card's own figure comes from
+		 * the payload's `windows`, so all three are correct whichever is active.
+		 */
 		const RANGES = [
-			{ id: "1", days: 1 },
-			{ id: "7", days: 7 },
-			{ id: "30", days: 30 },
-			{ id: "all", days: undefined }
+			{ id: "today", key: "today", days: () => 1 },
+			// Day-of-month, so "this month" means the calendar month rather than
+			// a rolling thirty days.
+			{ id: "month", key: "month", days: () => new Date().getDate() },
+			{ id: "all", key: "all", days: () => undefined }
 		];
 
 		/** Thousands separators plus tabular figures; an absent count is an em dash. */
@@ -383,20 +406,31 @@ window.__ModuleLoader__.load({
 
 		//#region view
 
-		function RangeTabs({ value, onChange, translate }) {
+		/**
+		 * The three windows as cards, and the range control.
+		 *
+		 * Each card always shows its own window's total, not a slice of whatever
+		 * is selected — which is the point of showing three. The selected one
+		 * drives the sections below.
+		 */
+		function StatRow({ data, range, onRange, translate }) {
+			const windows = data.windows ?? {};
 			return jsx("div", {
-				className: S.ranges,
-				children: RANGES.map((range) =>
-					jsx(
+				className: S.stats,
+				children: RANGES.map((r) =>
+					jsxs(
 						"button",
 						{
 							type: "button",
-							className: S.range,
-							...(range.id === value ? { "data-on": "" } : {}),
-							onClick: () => onChange(range.id),
-							children: translate(`range.${range.id}`)
+							className: S.stat,
+							...(r.id === range ? { "data-on": "" } : {}),
+							onClick: () => onRange(r.id),
+							children: [
+								jsx("div", { className: S.statValue, children: fmt(windows[r.key]?.tokens) }),
+								jsx("div", { className: S.statLabel, children: translate(`range.${r.id}`) })
+							]
 						},
-						range.id
+						r.id
 					)
 				)
 			});
@@ -415,32 +449,25 @@ window.__ModuleLoader__.load({
 			});
 		}
 
-		/** Three flat cards. Cost is an em dash when unpriced — never a zero. */
-		function StatRow({ data, translate }) {
+		/**
+		 * The one-line summary of the SELECTED window.
+		 *
+		 * Requests, cache hit rate and estimated cost do not each deserve a card
+		 * — they are qualifiers on the token figure above, and three more boxes
+		 * would push the site breakdown below the fold. Cost is an em dash when
+		 * unpriced, never a zero.
+		 */
+		function StatCaption({ data, translate }) {
 			const totals = data.totals ?? {};
 			const currencies = Object.entries(data.priced?.totals ?? {});
-			const cost = currencies.length === 0 ? "—" : currencies.map(([c, v]) => fmtMoney(v, c)).join(" + ");
-			const cards = [
-				{ value: fmt(totals.tokens), label: translate("stat.tokens") },
-				{ value: fmt(totals.requests), label: translate("stat.requests") },
-				{ value: cost, label: translate("stat.cost") }
+			const parts = [
+				translate("caption.requests", { n: fmt(totals.requests) }),
+				translate("caption.hit", { rate: fmtHit(totals.cacheHitRate) || "—" })
 			];
-			return jsx("div", {
-				className: S.stats,
-				children: cards.map((card, i) =>
-					jsxs(
-						"div",
-						{
-							className: S.stat,
-							children: [
-								jsx("div", { className: S.statValue, children: card.value }),
-								jsx("div", { className: S.statLabel, children: card.label })
-							]
-						},
-						i
-					)
-				)
-			});
+			if (currencies.length > 0) {
+				parts.push(translate("caption.cost", { cost: currencies.map(([c, v]) => fmtMoney(v, c)).join(" + ") }));
+			}
+			return jsx("p", { className: S.caption, children: parts.join(" · ") });
 		}
 
 		/**
@@ -500,22 +527,29 @@ window.__ModuleLoader__.load({
 		 * has contrast rather than rendering as one flat colour.
 		 */
 		function ActivityStrip({ data, translate }) {
-			const days = data.days ?? [];
-			if (days.length === 0) return jsx("p", { className: S.note, children: translate("activity.none") });
-
+			// Its own window, not the selected range. Tied to the range it
+			// collapsed to one cell whenever "today" was picked, leaving a mostly
+			// empty seven-row grid that read as a broken chart rather than as a
+			// quiet day.
+			const days = data.activity ?? data.days ?? [];
 			const byDay = new Map(days.map((d) => [d.day, d.tokens ?? 0]));
 			const max = Math.max(...byDay.values(), 1);
-			const last = new Date(`${days[days.length - 1].day}T00:00:00`);
-			const first = new Date(`${days[0].day}T00:00:00`);
 
-			// Pad to whole weeks so columns line up on a weekday, Monday first.
+			// Always the same shape: whole weeks ending today, Monday first, with
+			// idle days present as level zero rather than absent.
+			const today = new Date();
+			today.setHours(0, 0, 0, 0);
+			const endPad = 6 - ((today.getDay() + 6) % 7);
 			const cells = [];
-			const startPad = (first.getDay() + 6) % 7;
-			for (let i = 0; i < startPad; i++) cells.push(null);
-			for (let t = first.getTime(); t <= last.getTime(); t += 86_400_000) {
-				const key = localDayKey(new Date(t));
+			for (let back = ACTIVITY_DAYS - 1; back >= 0; back--) {
+				const date = new Date(today.getTime() - back * 86_400_000);
+				const key = localDayKey(date);
 				cells.push({ day: key, tokens: byDay.get(key) ?? 0 });
 			}
+			// Lead-in so the first column starts on a Monday.
+			const startPad = (new Date(today.getTime() - (ACTIVITY_DAYS - 1) * 86_400_000).getDay() + 6) % 7;
+			for (let i = 0; i < startPad; i++) cells.unshift(null);
+			for (let i = 0; i < endPad; i++) cells.push(null);
 
 			return jsxs("div", {
 				children: [
@@ -676,16 +710,35 @@ window.__ModuleLoader__.load({
 				});
 			}
 			const amount = Number.parseFloat(balance.total);
+			const granted = Number.parseFloat(balance.granted);
 			return jsxs("div", {
 				className: S.balance,
 				children: [
-					jsx("span", {
-						className: S.balanceAmount,
-						children: Number.isFinite(amount) ? fmtMoney(amount, balance.currency) : "—"
+					jsxs("div", {
+						className: S.balanceMain,
+						children: [
+							// Name the vendor. "Official balance" answers nothing on a
+							// panel that also reports relays — official whose?
+							jsx("div", { className: S.balanceWho, children: translate("balance.vendor") }),
+							jsx("div", {
+								className: S.balanceAmount,
+								children: Number.isFinite(amount) ? fmtMoney(amount, balance.currency) : "—"
+							})
+						]
 					}),
-					jsx("span", {
+					jsxs("div", {
 						className: S.balanceMeta,
-						children: balance.isAvailable === true ? translate("balance.active") : translate("balance.inactive")
+						children: [
+							jsx("div", {
+								className: balance.isAvailable === true ? S.balanceOk : S.balanceBad,
+								children: balance.isAvailable === true ? translate("balance.active") : translate("balance.inactive")
+							}),
+							// Granted credit expires and top-ups do not, so a total that
+							// hides the split can look healthier than the account is.
+							Number.isFinite(granted) && granted > 0
+								? jsx("div", { children: translate("balance.granted", { amount: fmtMoney(granted, balance.currency) }) })
+								: null
+						]
 					})
 				]
 			});
@@ -722,7 +775,7 @@ window.__ModuleLoader__.load({
 		}
 
 		/** The panel body: every section, each complete. */
-		function Body({ state, balance, site, onSelect, translate, onRetry }) {
+		function Body({ state, balance, site, onSelect, range, onRange, translate, onRetry }) {
 			if (state.status === "error") {
 				return jsxs("div", {
 					children: [
@@ -750,9 +803,14 @@ window.__ModuleLoader__.load({
 									onClick: () => onSelect(undefined),
 									children: translate("filter.clear", { site })
 								}),
-						children: empty
-							? jsx("p", { className: S.note, children: translate("state.empty") })
-							: jsx(StatRow, { data, translate })
+						children: jsxs("div", {
+							children: [
+								jsx(StatRow, { data, range, onRange, translate }),
+								empty
+									? jsx("p", { className: S.note, children: translate("state.empty") })
+									: jsx(StatCaption, { data, translate })
+							]
+						})
 					}),
 					jsx(Section, {
 						title: translate("section.sites"),
@@ -774,10 +832,10 @@ window.__ModuleLoader__.load({
 		 */
 		function TokenLedgerPanel({ wide, t }) {
 			const [open, setOpen] = react.useState(false);
-			const [range, setRange] = react.useState("30");
+			const [range, setRange] = react.useState("all");
 			const [site, setSite] = react.useState(undefined);
 			const [nonce, setNonce] = react.useState(0);
-			const days = RANGES.find((r) => r.id === range)?.days;
+			const days = (RANGES.find((r) => r.id === range) ?? RANGES[2]).days();
 			const state = useUsage(open, days, site, nonce);
 			const balance = useBalance(open, nonce);
 			const reload = () => setNonce((n) => n + 1);
@@ -829,8 +887,7 @@ window.__ModuleLoader__.load({
 										jsxs("div", {
 											className: S.headerActions,
 											children: [
-												jsx(RangeTabs, { value: range, onChange: setRange, translate }),
-												jsx("button", {
+													jsx("button", {
 													type: "button",
 													className: S.iconButton,
 													...(busy ? { "data-busy": "" } : {}),
@@ -853,7 +910,7 @@ window.__ModuleLoader__.load({
 								}),
 								jsx("div", {
 									className: S.body,
-									children: jsx(Body, { state, balance, site, onSelect: setSite, translate, onRetry: reload })
+									children: jsx(Body, { state, balance, site, onSelect: setSite, range, onRange: setRange, translate, onRetry: reload })
 								})
 							]
 						})
@@ -865,25 +922,24 @@ window.__ModuleLoader__.load({
 		//#region locales
 		const zh = {
 			"panel.title": "用量账本",
-			"range.1": "今日",
-			"range.7": "7 天",
-			"range.30": "30 天",
-			"range.all": "全部",
+			"range.today": "今日",
+			"range.month": "本月",
+			"range.all": "累计",
 			"action.refresh": "刷新",
 			"action.close": "关闭",
 			"action.retry": "重试",
 			"state.loading": "读取中…",
 			"state.empty": "这个区间内没有记录到任何用量。",
 			"error.load": "读不到用量数据。",
-			"section.balance": "官方余额",
-			"section.usage": "用量",
+			"section.balance": "DeepSeek 官方余额",
+			"section.usage": "Token 用量",
 			"section.sites": "中转站分布",
-			"section.activity": "活跃度",
+			"section.activity": "近 12 周活跃度",
 			"section.models": "模型",
 			"filter.clear": "只看 {site} ×",
-			"stat.tokens": "tokens",
-			"stat.requests": "请求",
-			"stat.cost": "估算费用",
+			"caption.requests": "{n} 请求",
+			"caption.hit": "缓存命中 {rate}",
+			"caption.cost": "估算 {cost}",
 			"sites.direct": "直连/官方",
 			"sites.none": "没有发现中转站——直连的话这就是全部。",
 			"activity.none": "这个区间内没有活跃记录。",
@@ -896,36 +952,37 @@ window.__ModuleLoader__.load({
 			"table.output": "输出",
 			"table.cost": "估算",
 			"table.none": "没有模型记录。",
+			"balance.vendor": "DeepSeek · API 余额",
 			"balance.active": "账户可用",
 			"balance.inactive": "账户不可用",
-			"balance.noKey": "这条官方路由没有配置密钥，查不了余额。",
-			"balance.noRoute": "没有直连官方的路由——中转站没有余额接口。",
-			"balance.failed": "余额读取失败。",
+			"balance.granted": "其中赠送 {amount}",
+			"balance.noKey": "这条 DeepSeek 官方路由没有配置密钥，查不了余额。",
+			"balance.noRoute": "没有直连 DeepSeek 官方的路由——中转站没有余额接口。",
+			"balance.failed": "DeepSeek 余额读取失败。",
 			"balance.unavailable": "这个部署问不到 provider 配置。",
 			"footer.updated": "索引更新于 {at}",
 			"footer.unattributed": "{n} 行归因不上"
 		};
 		const en = {
 			"panel.title": "Token Ledger",
-			"range.1": "Today",
-			"range.7": "7d",
-			"range.30": "30d",
-			"range.all": "All",
+			"range.today": "Today",
+			"range.month": "This month",
+			"range.all": "All time",
 			"action.refresh": "Refresh",
 			"action.close": "Close",
 			"action.retry": "Retry",
 			"state.loading": "Loading…",
 			"state.empty": "No usage recorded in this range.",
 			"error.load": "Could not read usage data.",
-			"section.balance": "Official balance",
-			"section.usage": "Usage",
+			"section.balance": "DeepSeek account balance",
+			"section.usage": "Token usage",
 			"section.sites": "By relay site",
-			"section.activity": "Activity",
+			"section.activity": "Last 12 weeks",
 			"section.models": "Models",
 			"filter.clear": "{site} only ×",
-			"stat.tokens": "tokens",
-			"stat.requests": "requests",
-			"stat.cost": "est. cost",
+			"caption.requests": "{n} requests",
+			"caption.hit": "{rate} cached",
+			"caption.cost": "est. {cost}",
 			"sites.direct": "Direct",
 			"sites.none": "No relay sites found — if you go direct, this is all of it.",
 			"activity.none": "No activity in this range.",
@@ -938,11 +995,13 @@ window.__ModuleLoader__.load({
 			"table.output": "Output",
 			"table.cost": "Est.",
 			"table.none": "No model records.",
+			"balance.vendor": "DeepSeek · API balance",
 			"balance.active": "Account active",
 			"balance.inactive": "Account inactive",
-			"balance.noKey": "That official route has no key configured.",
-			"balance.noRoute": "No direct official route — relays have no balance API.",
-			"balance.failed": "Could not read the balance.",
+			"balance.granted": "{amount} granted",
+			"balance.noKey": "That DeepSeek official route has no key configured.",
+			"balance.noRoute": "No direct DeepSeek route — relays have no balance API.",
+			"balance.failed": "Could not read the DeepSeek balance.",
 			"balance.unavailable": "This deployment exposes no provider directory.",
 			"footer.updated": "Index updated {at}",
 			"footer.unattributed": "{n} rows unattributed"
@@ -1002,7 +1061,8 @@ window.__ModuleLoader__.load({
 		exports.apply = apply;
 		exports.inject = inject;
 		exports.TokenLedgerPanel = TokenLedgerPanel;
-		exports.RangeTabs = RangeTabs;
+		exports.StatCaption = StatCaption;
+		exports.ACTIVITY_DAYS = ACTIVITY_DAYS;
 		exports.Body = Body;
 		exports.StatRow = StatRow;
 		exports.SiteRows = SiteRows;
