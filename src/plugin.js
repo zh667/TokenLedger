@@ -119,10 +119,15 @@ export function normalizeRelayConfig(config = {}) {
 		const domain = domainOf(baseUrl);
 		const id = spec.id ?? domain ?? route;
 		// Two routes may point at one relay — a key per model group is common.
-		// They must collapse to one site, not two rows for the same invoice.
-		if (seen.has(id)) continue;
-		seen.set(id, true);
-		sites.push({
+		// They must collapse to one site, not two rows for the same invoice, but
+		// the site still lists every route that reaches it: a listing that showed
+		// a hand-written site with no routes at all read as broken.
+		const already = seen.get(id);
+		if (already !== undefined) {
+			already.routes.push(route);
+			continue;
+		}
+		const record = {
 			id,
 			// `type` is not required up front: SITE_TYPES rejects undefined, so an
 			// unfingerprinted site is registered as newapi-shaped only once
@@ -130,8 +135,11 @@ export function normalizeRelayConfig(config = {}) {
 			type: spec.type,
 			baseUrl,
 			displayName: spec.displayName,
-			credentialReference: spec.credentialReference
-		});
+			credentialReference: spec.credentialReference,
+			routes: [route]
+		};
+		seen.set(id, record);
+		sites.push(record);
 	}
 
 	return { sites, providerBaseUrls, resolveSite: buildResolver({ sites, providerBaseUrls }) };
@@ -279,8 +287,31 @@ async function collectReconciliations(store, config, range, siteFilter, logger, 
  * @param deps - `{ config, sites, saveRelays }`.
  * @returns the text to show.
  */
+/**
+ * Say which kind of "not identified" this is.
+ *
+ * A site still being probed, one whose probe could not be made, and one that
+ * genuinely matches no known relay program are three different situations with
+ * three different responses — wait, check the network, or accept it. Printing
+ * one word for all three sent the only person who could tell them apart to the
+ * DSH log.
+ */
+export function describeProbe(site, probe) {
+	if (site?.type !== undefined) return site.type;
+	switch (probe?.state) {
+		case "pending":
+			return "探测中…";
+		case "failed":
+			return `探测失败：${probe.reason}`;
+		case "unrecognized":
+			return `未识别${probe.reason === undefined ? "" : `：${probe.reason}`}`;
+		default:
+			return "未探测";
+	}
+}
+
 async function runSiteCommand(args, deps) {
-	const { config = {}, sites, saveRelays, saveUnavailableBecause, refresh } = deps;
+	const { config = {}, sites, saveRelays, saveUnavailableBecause, refresh, settle, probeStatus } = deps;
 	const [action, ...rest] = args;
 	const manual = config.relays ?? {};
 
@@ -291,7 +322,9 @@ async function runSiteCommand(args, deps) {
 		// its result says "no relays" for up to a whole interval — on an install
 		// whose own report, drawn from the rollups, is showing those relays.
 		refresh?.();
+		await settle?.();
 		const known = sites?.() ?? [];
+		const probes = probeStatus?.() ?? new Map();
 		if (known.length === 0) {
 			return [
 				"没有发现任何中转站。",
@@ -303,9 +336,8 @@ async function runSiteCommand(args, deps) {
 		}
 		const lines = known.map((s) => {
 			const how = s.discovered === false ? "手动" : "自动发现";
-			const type = s.type ?? "未识别";
 			const routes = (s.routes ?? []).join(", ") || "—";
-			return `  ${s.id}  〔${how} · ${type}〕  路由：${routes}`;
+			return `  ${s.id}  〔${how} · ${describeProbe(s, probes.get(s.id))}〕  路由：${routes}`;
 		});
 		return [`中转站（${known.length}）：`, ...lines, "", "改：`/tokenledger site add <路由名> <地址>` 或 `site rm <路由名>`"].join("\n");
 	}
@@ -364,7 +396,9 @@ export async function runCommand(rawInput, deps) {
 			sites,
 			saveRelays,
 			saveUnavailableBecause,
-			refresh: deps.refresh
+			refresh: deps.refresh,
+			settle: deps.settle,
+			probeStatus: deps.probeStatus
 		});
 	}
 
@@ -450,6 +484,12 @@ export function apply(ctx, userConfig = {}) {
 	// `fingerprinted` guard made sure it was never asked again.
 	const softwareOf = new Map();
 	const asked = new Set();
+	// What happened when we asked. Without this, every unresolved case collapses
+	// into the same "unidentified" — a site still being probed, one whose probe
+	// failed, and one that genuinely matches no known relay program all look
+	// alike, and the only way to tell them apart is reading the DSH log.
+	const probes = new Map();
+	const inFlight = new Set();
 
 	/** Distinct origins, order-independent — the only change that alters attribution. */
 	const originKey = (d) => [...new Set(Object.values(d.providerBaseUrls ?? {}))].sort().join(" ");
@@ -468,8 +508,9 @@ export function apply(ctx, userConfig = {}) {
 	const fingerprint = (site) => {
 		if (site.type !== undefined || asked.has(site.id)) return;
 		asked.add(site.id);
-		void detect(site.baseUrl)
-			.then((result) => {
+		probes.set(site.id, { state: "pending" });
+		const settled = detect(site.baseUrl).then(
+			(result) => {
 				if (result.billingAvailable) {
 					softwareOf.set(site.id, result.software);
 					// Patch the live directory too. Recording only into the map leaves
@@ -477,11 +518,42 @@ export function apply(ctx, userConfig = {}) {
 					// whole interval of a site reading "unidentified" after detection
 					// has already succeeded.
 					directory = { ...directory, sites: withKnownSoftware(directory.sites, softwareOf) };
+					probes.set(site.id, { state: "identified", confidence: result.confidence });
+				} else {
+					probes.set(site.id, {
+						state: "unrecognized",
+						reason: result.ambiguous === undefined ? result.reason : `多个程序同样匹配：${result.ambiguous.join("、")}`
+					});
 				}
 				logger?.info?.("tokenledger: %s looks like %s (confidence %s)", site.id, result.software, result.confidence);
-			})
-			.catch((error) => logger?.warn?.("tokenledger: could not fingerprint %s: %s", site.id, error?.message ?? error));
+			},
+			(error) => {
+				// A probe that could not be made is a different fact from one that
+				// came back inconclusive, and only one of them is worth retrying.
+				probes.set(site.id, { state: "failed", reason: error?.message ?? String(error) });
+				logger?.warn?.("tokenledger: could not fingerprint %s: %s", site.id, error?.message ?? error);
+			}
+		);
+		inFlight.add(settled);
+		void settled.finally(() => inFlight.delete(settled));
 	};
+
+	/**
+	 * Wait for probes started just now, but never for long.
+	 *
+	 * `/tokenledger site` refreshes and then renders synchronously, so on the
+	 * first run after a restart every site read "unidentified" — not because
+	 * detection had failed but because it had not finished. A short wait turns
+	 * that into a real answer; a bounded one keeps an unreachable relay from
+	 * holding the command open.
+	 */
+	const settleProbes = (ms = 2500) =>
+		inFlight.size === 0
+			? Promise.resolve()
+			: Promise.race([
+					Promise.allSettled([...inFlight]),
+					new Promise((resolve) => setTimeout(resolve, ms).unref?.())
+				]);
 
 	/**
 	 * @returns whether the origin set moved, which means already-folded history
@@ -686,6 +758,8 @@ export function apply(ctx, userConfig = {}) {
 			logger,
 			sites: () => directory.sites,
 			refresh: () => void refreshDirectory(),
+			settle: settleProbes,
+			probeStatus: () => new Map(probes),
 			// Present only once the namespace registered; `runCommand` says so
 			// rather than failing, because the report half still works without it.
 			saveRelays:

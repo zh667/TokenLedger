@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { discoverFromContext, discoverSites, mergeSites, readAtPath, withKnownSoftware } from "../src/discovery.js";
-import { normalizeRelayConfig, runCommand } from "../src/plugin.js";
+import { describeProbe, normalizeRelayConfig, runCommand } from "../src/plugin.js";
 import { LedgerStore } from "../src/store.js";
 import { applyUsageDelta } from "../src/usage.js";
 
@@ -351,7 +351,7 @@ test("`site list` re-asks the host rather than trusting the last sweep's answer"
 	}
 });
 
-test("`site list` distinguishes discovered from hand-written, and says what is unidentified", async () => {
+test("`site list` distinguishes discovered from hand-written, and lists every route", async () => {
 	const store = emptyStore();
 	try {
 		const text = await runCommand("site list", {
@@ -365,11 +365,56 @@ test("`site list` distinguishes discovered from hand-written, and says what is u
 		assert.ok(text.includes("自动发现"));
 		assert.ok(text.includes("手动"));
 		assert.ok(text.includes("newapi"));
-		assert.ok(text.includes("未识别"), "an unfingerprinted site must not look like a typed one");
 		assert.ok(text.includes("gpt, claude"));
 	} finally {
 		store.close();
 	}
+});
+
+test("the four ways a site can lack a type read differently", () => {
+	// They used to print one word, so the only way to tell "still probing" from
+	// "the probe could not be made" from "no known program matches" was to open
+	// the DSH log — which is exactly what a user should not have to do to read
+	// their own report.
+	assert.equal(describeProbe({ type: "newapi" }, undefined), "newapi");
+	assert.equal(describeProbe({}, { state: "pending" }), "探测中…");
+	assert.ok(describeProbe({}, { state: "failed", reason: "fetch failed" }).includes("fetch failed"));
+	assert.ok(describeProbe({}, { state: "unrecognized", reason: "没匹配上" }).includes("没匹配上"));
+	assert.equal(describeProbe({}, undefined), "未探测");
+});
+
+test("`site list` waits briefly so a first run reports a real answer", async () => {
+	// The listing renders synchronously after refreshing, so before this the very
+	// first run after a restart always said "unidentified" — not because
+	// detection had failed but because it had not finished.
+	const store = emptyStore();
+	let type;
+	try {
+		const text = await runCommand("site", {
+			store,
+			config: {},
+			refresh: () => {},
+			settle: async () => void (type = "newapi"),
+			sites: () => [{ id: "api.relay-one.example", routes: ["r"], type, discovered: true }],
+			probeStatus: () => new Map()
+		});
+		assert.ok(text.includes("newapi"), `rendered before detection settled: ${text}`);
+	} finally {
+		store.close();
+	}
+});
+
+test("a hand-written relay lists the route it was written against", () => {
+	const { sites } = normalizeRelayConfig({ relays: { test: "https://api.example.com/v1" } });
+	assert.deepEqual(sites[0].routes, ["test"], "a site with no routes at all reads as broken");
+});
+
+test("several hand-written routes on one relay collapse to one site listing both", () => {
+	const { sites } = normalizeRelayConfig({
+		relays: { a: "https://relay.example/v1", b: "https://relay.example/v2" }
+	});
+	assert.equal(sites.length, 1);
+	assert.deepEqual(sites[0].routes, ["a", "b"]);
 });
 
 test("`site add` persists through the settings scope and never touches a file itself", async () => {
