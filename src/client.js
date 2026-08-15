@@ -27,6 +27,35 @@
  * renders — so the panel and the command have no second aggregation to drift
  * apart, and "the numbers match the command" is a meaningful test.
  *
+
+ * ## Why this is one file, and has to stay one
+ *
+ * It is long — CSS, both dictionaries, every component, the data hooks. That
+ * looks like a file begging to be split, and it cannot be. Checked against
+ * `dsh-client-modules` rather than assumed:
+ *
+ * - The host resolves `exports["./client"]` to **one** path, reads it with
+ *   `readFileSync`, and serves it as-is (`lib/index.js`). There is no bundler
+ *   in the path, so one graph row is one URL is one file.
+ * - The synchronous `require` handed to a factory resolves seed words, shell
+ *   modules, and **already-registered factories** — it has no load branch,
+ *   because loading is async (`lib/client.js`, `makeRequire`). A sibling file
+ *   nothing fetched can therefore never be required; the panel would die at
+ *   materialization.
+ *
+ * Two `load()` calls inside *this* file would work — `factories` is keyed only
+ * by what was registered, with no boot-graph check — but that splits nothing.
+ *
+ * One thing that would break even then: `claimStyles` tags untagged `<style>`
+ * elements with whichever id is materializing, for HMR bookkeeping. Injecting
+ * the stylesheet from a child module would file it under the child, and
+ * invalidating the panel would leave the stylesheet behind. The injection
+ * belongs to the factory whose id owns it.
+ *
+ * A build step would dissolve all of this, and cost the property this file is
+ * shaped around: with no toolchain, the browser half can be materialized and
+ * tested in Node, which is what `test/client.test.js` does.
+ *
  * @module dsh-tokenledger/client
  */
 
