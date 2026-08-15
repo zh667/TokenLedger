@@ -6,7 +6,9 @@
 
 **统计 DeepSeek Harness 的 Token 消耗，并归属到实际服务这次请求的中转站——不用配置，不用凭据。**
 
-用量统计本身在 DSH 生态里已经有几十个实现。TokenLedger 存在的理由是它们都缺的那一维：**你的用量记录里没有「这笔花在哪个中转站」。**
+用量统计本身在 DSH 生态里已经有几十个实现。TokenLedger 的差别是**按站点身份而不是按路由名归属**——它读 provider 的 baseURL，按 origin 分组，所以同一个中转站上的多把 key 会合并成一行、对应你收到的那一张账单，站名就是域名而不是你自己起的路由别名。
+
+> 早期版本这里写的是「它们都缺这一维」。那句话说过头了：star 最高的同类产品 `Ychris12138/dsh-usage-stats` 就按 `provider/model` 记录，能显示 `api99 · gpt-5.6-sol`。逐条对照见 [`docs/COMPARISON.md`](docs/COMPARISON.md)——包括它有而这里没有的功能。
 
 ## 它解决什么问题
 

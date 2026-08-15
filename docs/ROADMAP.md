@@ -153,10 +153,20 @@ What it would take to finish: a credential seam (a reference to
 `collectReconciliations` — which today reads `config.billing[siteId]`, a map of
 **functions** that only tests can supply.
 
-## Later — sidebar panel
+## Next — the web UI
+
+Planned in [`UI-PLAN.md`](UI-PLAN.md) on 2026-08-15: style referenced from New
+API, layout from `dsh-usage-stats`, five phases starting with the one unverified
+step (a third-party host RPC). Feature-by-feature comparison against that plugin
+is in [`COMPARISON.md`](COMPARISON.md), including the claim it disproved — this
+document's earlier assertion that no usage plugin records relay attribution.
+
+The background research below stands and is what the plan builds on.
+
+## Background — sidebar panel
 
 A left-sidebar entry the user clicks when they want to look. Researched
-2026-08-15; feasible, deliberately not now.
+2026-08-15; feasible.
 
 The seat is `sidebar.footer.action` (declared by
 `@deepseek-ai/dsh-client-ui-sidebar`): a root-scoped **list** slot for "optional
