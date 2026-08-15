@@ -765,3 +765,17 @@ test("a lone busy day is not rendered as the palest green", async () => {
 	assert.equal(many(1), 1);
 	assert.equal(many(8), 4);
 });
+
+test("the badge icon is not pushed in by a centring box", async () => {
+	// A fixed-width wrapper centred a 16px icon inside 24px, landing it 4px
+	// further in than the Settings row directly below — measured at x=22 against
+	// x=18 for both neighbours, which reads as a misalignment rather than as
+	// deliberate spacing. In the rail the badge itself does the centring.
+	const { dom } = await loadBundle();
+	const css = dom.head.children[0].textContent;
+	const rule = css.match(/\.tkl_badgeIcon\{[^}]*\}/)[0];
+	assert.equal(/width:\s*24px/.test(rule), false, rule);
+	assert.equal(/justify-content/.test(rule), false, "centring belongs to the rail badge, not the icon");
+	// The rail still centres, via the badge.
+	assert.ok(css.includes(".tkl_layer.tkl_rail .tkl_badge{border-radius:50%;justify-content:center"));
+});

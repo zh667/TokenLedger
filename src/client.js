@@ -96,7 +96,10 @@ window.__ModuleLoader__.load({
 			".tkl_badge{width:100%;min-width:0;height:49px;color:var(--dsw-alias-label-primary);cursor:pointer;background:0 0;border:none;border-radius:12px;align-items:center;gap:8px;padding:0 8px 0 6px;font-family:inherit;font-size:14px;display:inline-flex;overflow:hidden}",
 			".tkl_badge:hover{background:var(--dsw-alias-interactive-bg-hover-solid)}",
 			".tkl_badge[data-active]{background:var(--dsw-alias-interactive-bg-hover)}",
-			".tkl_badgeIcon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:24px}",
+			// No fixed width: a 24px centring box pushed a 16px icon 4px further in
+			// than the Settings row beside it, which reads as a misalignment rather
+			// than as spacing. In the rail the badge itself does the centring.
+			".tkl_badgeIcon{flex:none;display:inline-flex;align-items:center}",
 			".tkl_badgeLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}",
 			".tkl_badgeValue{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;flex:none;margin-left:auto;font-size:12px;line-height:16px}",
 			// Collapsed sidebar: the shell narrows to a 56px rail and every control
