@@ -27,10 +27,10 @@
 
 import { applyUsageDelta, dayKey } from "./usage.js";
 import { RelaySiteRegistry, SITE_TYPES, createSiteResolver, domainOf } from "./relay-sites.js";
+import { createFingerprintRegistry } from "./fingerprints.js";
 import { discoverFromContext, mergeSites, withKnownSoftware } from "./discovery.js";
 import { createBalanceReader, listAccounts } from "./balance.js";
 import { registerRoutes } from "./http.js";
-import { detectRelaySoftware } from "./adapters/detect.js";
 import { LedgerStore } from "./store.js";
 import { RateTable, priceRows } from "./pricing.js";
 import { renderReport } from "./report.js";
@@ -489,88 +489,25 @@ export function apply(ctx, userConfig = {}) {
 	// one interval rather than a permanently stale answer.
 	let directory = { sites: [], providerBaseUrls: {}, resolveSite: undefined };
 	let directoryKnown = false;
-	// Keyed by site id and OUTSIDE the directory, because the directory's site
-	// objects are rebuilt from scratch on every sweep. An earlier version wrote
-	// the detected type onto the site object itself, so the answer survived until
-	// the next rebuild and every site then read "未识别" forever — while the
-	// `fingerprinted` guard made sure it was never asked again.
-	const softwareOf = new Map();
-	const asked = new Set();
-	// What happened when we asked. Without this, every unresolved case collapses
-	// into the same "unidentified" — a site still being probed, one whose probe
-	// failed, and one that genuinely matches no known relay program all look
-	// alike, and the only way to tell them apart is reading the DSH log.
-	const probes = new Map();
-	const inFlight = new Set();
+	// Which relay program each site runs. Its own module, because it is four
+	// pieces of state and a lifecycle — see `fingerprints.js` for why none of
+	// them collapses into another, and for the two real bugs that lived here
+	// when it had no seam to test against.
+	const fingerprints = createFingerprintRegistry({
+		detect: config.detect,
+		enabled: config.fingerprint === true,
+		logger,
+		// Patch the live directory as soon as an answer lands. Recording only
+		// into the map leaves it invisible until the next sweep rebuilds — up to
+		// a whole interval of a site reading "unidentified" after detection has
+		// already succeeded.
+		onLearn: (software) => {
+			directory = { ...directory, sites: withKnownSoftware(directory.sites, software) };
+		}
+	});
 
 	/** Distinct origins, order-independent — the only change that alters attribution. */
 	const originKey = (d) => [...new Set(Object.values(d.providerBaseUrls ?? {}))].sort().join(" ");
-
-	/**
-	 * Fingerprint a relay once, in the background. It costs a few unauthenticated
-	 * GETs and saves the user from looking up a `type`. A failure leaves the type
-	 * unknown, which only costs that site its balance card — never attribution.
-	 */
-	// Injectable so `apply` can be exercised without reaching the network. Both
-	// bugs a real install found — a sampled service and a discarded fingerprint —
-	// were in this wiring, which had no test at all because it could not be run.
-	const detect = config.detect ?? detectRelaySoftware;
-
-	const fingerprint = (site) => {
-		// Off unless asked for. Knowing whether a relay runs New API or Sub2API
-		// decides which balance scheme reads it — but the balance card already
-		// triggers that probe lazily, for the one site being asked about. Eager
-		// fingerprinting would instead mean six unauthenticated requests to a
-		// third party, per relay, at mount, for an answer usually never needed.
-		if (config.fingerprint !== true) return;
-		if (site.type !== undefined || asked.has(site.id)) return;
-		asked.add(site.id);
-		probes.set(site.id, { state: "pending" });
-		const settled = detect(site.baseUrl).then(
-			(result) => {
-				if (result.billingAvailable) {
-					softwareOf.set(site.id, result.software);
-					// Patch the live directory too. Recording only into the map leaves
-					// the answer invisible until the next sweep rebuilds — up to a
-					// whole interval of a site reading "unidentified" after detection
-					// has already succeeded.
-					directory = { ...directory, sites: withKnownSoftware(directory.sites, softwareOf) };
-					probes.set(site.id, { state: "identified", confidence: result.confidence });
-				} else {
-					probes.set(site.id, {
-						state: "unrecognized",
-						reason: result.ambiguous === undefined ? result.reason : `多个程序同样匹配：${result.ambiguous.join("、")}`
-					});
-				}
-				logger?.info?.("tokenledger: %s looks like %s (confidence %s)", site.id, result.software, result.confidence);
-			},
-			(error) => {
-				// A probe that could not be made is a different fact from one that
-				// came back inconclusive, and only one of them is worth retrying.
-				probes.set(site.id, { state: "failed", reason: error?.message ?? String(error) });
-				logger?.warn?.("tokenledger: could not fingerprint %s: %s", site.id, error?.message ?? error);
-			}
-		);
-		inFlight.add(settled);
-		void settled.finally(() => inFlight.delete(settled));
-	};
-
-	/**
-	 * Wait for probes started just now, but never for long.
-	 *
-	 * `/tokenledger site` refreshes and then renders synchronously, so on the
-	 * first run after a restart every site read "unidentified" — not because
-	 * detection had failed but because it had not finished. A short wait turns
-	 * that into a real answer; a bounded one keeps an unreachable relay from
-	 * holding the command open.
-	 */
-	const settleProbes = (ms = 2500) =>
-		inFlight.size === 0
-			? Promise.resolve()
-			: Promise.race([
-					Promise.allSettled([...inFlight]),
-					new Promise((resolve) => setTimeout(resolve, ms).unref?.())
-				]);
 
 	/**
 	 * @returns whether the origin set moved, which means already-folded history
@@ -586,7 +523,7 @@ export function apply(ctx, userConfig = {}) {
 			discovered = { sites: [], providerBaseUrls: {}, skipped: 0, available: false };
 		}
 		const merged = mergeSites(discovered, normalizeRelayConfig(config));
-		merged.sites = withKnownSoftware(merged.sites, softwareOf);
+		merged.sites = withKnownSoftware(merged.sites, fingerprints.software);
 		const next = { ...merged, resolveSite: buildResolver(merged) };
 		const moved = directoryKnown && originKey(next) !== originKey(directory);
 
@@ -599,7 +536,7 @@ export function apply(ctx, userConfig = {}) {
 		}
 		directory = next;
 		directoryKnown = true;
-		for (const site of next.sites) fingerprint(site);
+		for (const site of next.sites) fingerprints.request(site);
 		return moved;
 	};
 
@@ -784,8 +721,8 @@ export function apply(ctx, userConfig = {}) {
 			logger,
 			sites: () => directory.sites,
 			refresh: () => void refreshDirectory(),
-			settle: settleProbes,
-			probeStatus: () => new Map(probes),
+			settle: fingerprints.settle,
+			probeStatus: fingerprints.status,
 			// Present only once the namespace registered; `runCommand` says so
 			// rather than failing, because the report half still works without it.
 			saveRelays:
@@ -815,13 +752,13 @@ export function apply(ctx, userConfig = {}) {
 			sweep: runSweep,
 			priced: (range, site) =>
 				config.rates === undefined ? null : priceWithConfiguredRates(store, range, site, config.rates),
-			accounts: () => listAccounts(ctx, { softwareOf }),
+			accounts: () => listAccounts(ctx, { softwareOf: fingerprints.software }),
 			lastSweepAt: () => lastSweepAt,
 			balance: createBalanceReader(ctx, {
-				softwareOf,
+				softwareOf: fingerprints.software,
 				// A lazily detected relay program is remembered, so the probe
 				// happens once per site rather than once per balance read.
-				learnSoftware: (host, software) => softwareOf.set(host, software),
+				learnSoftware: fingerprints.learn,
 				detect
 			}),
 			logger

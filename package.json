@@ -10,18 +10,19 @@
   },
   "exports": {
     ".": "./src/index.js",
-    "./usage": "./src/usage.js",
-    "./discovery": "./src/discovery.js",
-    "./relay-sites": "./src/relay-sites.js",
-    "./pricing": "./src/pricing.js",
-    "./store": "./src/store.js",
     "./adapters/detect": "./src/adapters/detect.js",
+    "./balance": "./src/balance.js",
+    "./client": "./src/client.js",
+    "./discovery": "./src/discovery.js",
+    "./fingerprints": "./src/fingerprints.js",
+    "./http": "./src/http.js",
     "./package.json": "./package.json",
     "./plugin": "./src/plugin.js",
+    "./pricing": "./src/pricing.js",
+    "./relay-sites": "./src/relay-sites.js",
     "./report": "./src/report.js",
-    "./http": "./src/http.js",
-    "./balance": "./src/balance.js",
-    "./client": "./src/client.js"
+    "./store": "./src/store.js",
+    "./usage": "./src/usage.js"
   },
   "files": [
     "src",
