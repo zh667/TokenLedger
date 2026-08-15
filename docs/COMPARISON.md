@@ -63,7 +63,7 @@ are the reason someone would keep it installed alongside.
 | Index diagnostics, including unattributed-row count | `/tokenledger diagnostics` |
 | SQLite rollups keyed per session, so a re-fold replaces rather than subtracts | `src/store.js` |
 | Relay software fingerprinting, credential-free (off by default) | `src/adapters/detect.js` |
-| New API / Sub2API billing adapters + reconciliation engine | library only, deferred |
+| New API / Sub2API billing adapters + reconciliation engine | removed — see issue #1 |
 | 177 tests | `test/` |
 
 Its persistence is an incremental JSON cache at

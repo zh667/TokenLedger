@@ -9,7 +9,7 @@
  * thousands-separated so magnitude reads at a glance; a column of
  * left-aligned numbers is a column nobody compares.
  *
- * **A missing figure prints an em dash, never a zero.** The reconciliation
+ * **A missing figure prints an em dash, never a zero.** The pricing
  * engine is careful to return null rather than 0, and the renderer must not
  * undo that at the last step — `0` in a cost column reads as free.
  *
@@ -20,33 +20,11 @@
  * @module dsh-tokenledger/report
  */
 
-import { INCOMPARABLE } from "./reconcile.js";
 
 const DASH = "—";
 
 /** The route component the fold writes when DSH reported no provider. */
 const UNKNOWN_LABEL = "unknown";
-
-/**
- * Display text for the engine's stable reason identifiers.
- *
- * The identifiers stay English so callers can branch on them; only what a human
- * reads is translated. An unknown reason falls through verbatim rather than
- * being swallowed — a missing translation should look like a missing
- * translation, not like no reason at all.
- */
-const REASON_TEXT = new Map([
-	[INCOMPARABLE.NO_BILLING, "认不出这个中转站跑的是哪套软件，没有账单侧可比"],
-	[INCOMPARABLE.NO_READER, "没有为这个站配置账单读取器，从未去取过它自己的数字"],
-	[INCOMPARABLE.WINDOW_MISMATCH, "该站只提供生涯累计，回答不了带时间窗的问题"],
-	[INCOMPARABLE.NO_RELAY_DATA, "该站没有返回可用的账单数字"],
-	[INCOMPARABLE.NO_DSH_DATA, "这个区间内 DSH 没有记录到该站的用量"]
-]);
-
-/** Translate a reason for display, leaving anything unmapped intact. */
-export function reasonText(reason) {
-	return REASON_TEXT.get(reason) ?? reason;
-}
 
 /** Thousands-separated integer, or an em dash for nothing. */
 export function num(value) {
@@ -105,23 +83,10 @@ export function sparkline(values) {
 }
 
 /**
- * The evidence badge for a relay row. The reconciliation engine already
- * refuses to overstate; this only renders what it decided.
- */
-function badge(reconciliation) {
-	if (reconciliation === undefined) return "";
-	if (!reconciliation.comparable) return "⚠ 无法比对";
-	const tick = reconciliation.tokens?.delta?.promptTokens === 0 ? " ✓" : "";
-	return `〔${reconciliation.level}${tick}〕`;
-}
-
-/**
  * Render the usage report.
  *
- * @param input - `{ range, days, models, sites, reconciliations?, priced?,
- *   fetchedAt?, width? }` where `days`/`models`/`sites` come straight from the
- *   store's query methods and `reconciliations` maps site id to a
- *   `reconcileSite` result.
+ * @param input - `{ range, days, models, sites, providers?, priced?, siteFilter? }`,
+ *   where `days`/`models`/`sites` come straight from the store's query methods.
  * @returns markdown-safe monospace text.
  */
 export function renderReport(input) {
@@ -130,7 +95,6 @@ export function renderReport(input) {
 		days = [],
 		models = [],
 		sites = [],
-		reconciliations = {},
 		providers = [],
 		priced = null,
 		siteFilter
@@ -208,11 +172,8 @@ export function renderReport(input) {
 	out.push("");
 	if (configured) {
 		out.push("  中转站分布");
-		const siteRows = sites.map((s) => {
-			const r = reconciliations[s.site];
-			return [s.site === "direct" ? "直连/官方" : s.site, num(s.tokens), badge(r)];
-		});
-		out.push(...table([{ title: "" }, { title: "tokens", align: "right" }, { title: "" }], siteRows).slice(1).map((l) => `  ${l}`));
+		const siteRows = sites.map((s) => [s.site === "direct" ? "直连/官方" : s.site, num(s.tokens)]);
+		out.push(...table([{ title: "" }, { title: "tokens", align: "right" }], siteRows).slice(1).map((l) => `  ${l}`));
 	} else if (providers.length > 0) {
 		out.push("  Provider 路由分布");
 		const rows = providers.map((p) => [p.provider === UNKNOWN_LABEL ? "未知路由" : p.provider, num(p.tokens)]);
@@ -226,73 +187,8 @@ export function renderReport(input) {
 		out.push("  如果你在用中转站却没显示，用 `/tokenledger site add <路由名> <地址>` 补一条。");
 	}
 
-	// Anything the comparison refused to do is stated, not omitted.
-	const refused = Object.entries(reconciliations).filter(([, r]) => !r.comparable);
-	if (refused.length > 0) {
-		out.push("");
-		for (const [site, r] of refused) {
-			out.push(`  ⚠ ${site}：${reasonText(r.reason)}`);
-			if (r.relayBalance) out.push(`     余额 ${money(r.relayBalance.amount, r.relayBalance.currency)}`);
-		}
-	}
-
-	const notes = Object.values(reconciliations).flatMap((r) => r.notes ?? []);
-	if (notes.length > 0) {
-		out.push("");
-		for (const note of [...new Set(notes)]) out.push(`  · ${note}`);
-	}
 
 	return out.join("\n");
-}
-
-/**
- * Render the reconciliation view: one block per site, our figures beside the
- * relay's.
- */
-export function renderReconciliation(results) {
-	const out = [`── 对账 ${"─".repeat(40)}`, ""];
-	if (results.length === 0) {
-		out.push("  还没有配置任何中转站，所以没有账单侧可比。");
-		out.push("");
-		out.push("  用量统计不受影响——`/tokenledger` 已经按 Provider 路由归属。");
-		out.push("  要对账，在插件配置里加 `relays`，每个中转站一行：");
-		out.push("");
-		out.push("    - id: tokenledger");
-		out.push("      config:");
-		out.push("        relays:");
-		out.push("          你的路由名: https://中转站域名/v1");
-		return out.join("\n");
-	}
-
-	for (const r of results) {
-		out.push(`  ${r.site}  ${badge(r)}`);
-		if (!r.comparable) {
-			out.push(`  ⚠ ${reasonText(r.reason)}`);
-			if (r.relayBalance) out.push(`     余额 ${money(r.relayBalance.amount, r.relayBalance.currency)}`);
-			out.push("");
-			continue;
-		}
-		const rows = [
-			["prompt", num(r.tokens.dsh?.promptTokens), num(r.tokens.relay.promptTokens), signed(r.tokens.delta?.promptTokens)],
-			["output", num(r.tokens.dsh?.outputTokens), num(r.tokens.relay.outputTokens), signed(r.tokens.delta?.outputTokens)],
-			["请求", num(r.tokens.dsh?.requests), num(r.tokens.relay.requests), signed(r.tokens.delta?.requests)],
-			[
-				"费用",
-				money(r.cost.dshEstimate?.amount, r.cost.dshEstimate?.currency),
-				money((r.cost.relayActualCost ?? r.cost.relayListCost)?.amount, (r.cost.relayActualCost ?? r.cost.relayListCost)?.currency),
-				r.cost.currencyMismatch ? "币种不同" : signedMoney(r.cost.delta, r.cost.deltaCurrency)
-			]
-		];
-		out.push(
-			...table(
-				[{ title: "" }, { title: "TokenLedger 算的", align: "right" }, { title: "站点收的", align: "right" }, { title: "差", align: "right" }],
-				rows
-			).map((l) => `  ${l}`)
-		);
-		for (const note of r.notes ?? []) out.push(`  · ${note}`);
-		out.push("");
-	}
-	return out.join("\n").trimEnd();
 }
 
 function signed(v) {

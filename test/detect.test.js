@@ -3,8 +3,6 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 
 import { GENERIC, PROBE_PATHS, detectRelaySoftware, scoreFingerprint } from "../src/adapters/detect.js";
-import { Sub2ApiClient, normalizeUsage } from "../src/adapters/sub2api.js";
-import { LEVELS } from "../src/adapters/newapi.js";
 
 const FIXTURE = JSON.parse(readFileSync(new URL("./fixtures/sub2api.json", import.meta.url), "utf8"));
 
@@ -97,101 +95,6 @@ test("detectRelaySoftware probes unauthenticated and never sends a credential", 
 });
 
 // --- Sub2API adapter --------------------------------------------------------
-
-test("Sub2API reports real currency, so no quota conversion is applied", () => {
-	const fact = normalizeUsage(FIXTURE.usage);
-	assert.equal(fact.currency, "USD");
-	assert.equal(fact.balance.amount, 4.76803348);
-	assert.equal(fact.balance.currency, "USD");
-});
-
-test("list price and actually-deducted cost are kept apart", () => {
-	const fact = normalizeUsage(FIXTURE.usage);
-	assert.equal(fact.total.listCost, 0.33138075);
-	assert.equal(fact.total.actualCost, 0.231966525);
-	assert.notEqual(fact.total.listCost, fact.total.actualCost, "a 30% gap that must never be collapsed");
-});
-
-test("Sub2API input_tokens excludes cache, the opposite of New API", () => {
-	const fact = normalizeUsage(FIXTURE.usage);
-	assert.equal(fact.total.inputTokens, 0);
-	assert.equal(fact.total.cacheReadTokens, 325_024);
-	assert.equal(fact.total.cacheWriteTokens, 17_107);
-	// The comparable prompt-side figure is the sum, matching DSH's inputTotal().
-	assert.equal(fact.total.promptTokens, 342_131);
-});
-
-test("our bucket reading reproduces the site's own total_tokens", () => {
-	// An independent check that promptTokens is assembled correctly: the site
-	// publishes total_tokens and never says how it is composed.
-	const fact = normalizeUsage(FIXTURE.usage);
-	assert.equal(fact.total.promptTokens + fact.total.outputTokens, fact.total.reportedTotalTokens);
-	assert.equal(fact.total.reportedTotalTokens, 344_609);
-});
-
-test("an empty daily_usage is reported as summary-only, not as an empty period", () => {
-	const fact = normalizeUsage(FIXTURE.usage);
-	assert.equal(fact.level, LEVELS.SUMMARY);
-	assert.equal(fact.window, null);
-	assert.deepEqual(fact.capabilities, {
-		perRequest: false,
-		perModel: false,
-		perDay: false,
-		recomputable: false,
-		windowed: false
-	});
-});
-
-test("a deployment that does populate daily_usage upgrades its own capability", () => {
-	const withDaily = {
-		...FIXTURE.usage,
-		daily_usage: [{ date: "2026-08-13", requests: 2, input_tokens: 10, output_tokens: 5, cost: 0.01 }]
-	};
-	const fact = normalizeUsage(withDaily);
-	assert.equal(fact.capabilities.perDay, true);
-	assert.equal(fact.daily[0].day, "2026-08-13");
-	assert.equal(fact.daily[0].listCost, 0.01);
-});
-
-test("a missing cost is null rather than zero", () => {
-	const fact = normalizeUsage({ unit: "USD", usage: { total: { requests: 1 } } });
-	assert.equal(fact.total.listCost, null);
-	assert.equal(fact.total.actualCost, null);
-	assert.equal(fact.total.requests, 1);
-});
-
-test("the client sends the key as a header and rejects a query-string form", async () => {
-	let seen;
-	const client = new Sub2ApiClient({
-		origin: "https://relay.example.com",
-		getCredential: async () => ({ mode: "key", value: "sk-secret" }),
-		fetch: async (url, init) => {
-			seen = { url: String(url), headers: init.headers };
-			return { ok: true, status: 200, json: async () => FIXTURE.usage };
-		}
-	});
-	const fact = await client.usage();
-	assert.equal(seen.url.includes("sk-secret"), false);
-	assert.equal(seen.headers.authorization, "Bearer sk-secret");
-	assert.equal(fact.balance.amount, 4.76803348);
-});
-
-test("an invalid key surfaces as an error, not as a zero balance", async () => {
-	const client = new Sub2ApiClient({
-		origin: "https://relay.example.com",
-		getCredential: async () => ({ mode: "key", value: "bad" }),
-		fetch: async () => ({ ok: false, status: 401, json: async () => ({ message: "unauthorized" }) })
-	});
-	await assert.rejects(() => client.usage(), /failed: 401/);
-});
-
-test("key validity and plan are carried, since an exhausted key still answers 200", () => {
-	const fact = normalizeUsage(FIXTURE.usage);
-	assert.equal(fact.keyValid, true);
-	assert.equal(fact.plan.name, "钱包余额");
-	assert.equal(fact.plan.mode, "unrestricted");
-	assert.equal(normalizeUsage({ ...FIXTURE.usage, isValid: false }).keyValid, false);
-});
 
 // --- telling the three kinds of miss apart -----------------------------------
 

@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { compact, money, num, reasonText, renderReconciliation, renderReport, sparkline, table } from "../src/report.js";
-import { INCOMPARABLE, reconcileSite } from "../src/reconcile.js";
+import { compact, money, num, renderReport, sparkline, table } from "../src/report.js";
 import { runCommand } from "../src/plugin.js";
 import { LedgerStore } from "../src/store.js";
 import { applyUsageDelta } from "../src/usage.js";
@@ -64,38 +63,10 @@ test("the sparkline scales to its own maximum and survives all-zero input", () =
 	assert.equal(s.at(-1), "█");
 });
 
-test("reasons are translated for display but the identifiers stay stable", () => {
-	assert.notEqual(reasonText(INCOMPARABLE.WINDOW_MISMATCH), INCOMPARABLE.WINDOW_MISMATCH);
-	assert.ok(reasonText(INCOMPARABLE.NO_READER).includes("账单读取器"));
-	assert.equal(reasonText("something new upstream"), "something new upstream", "an unmapped reason must not vanish");
-});
-
-test("no-reader and unrecognized-software are different reasons", () => {
-	const noReader = reconcileSite({ site: "s", dsh: null, relay: null, readerConfigured: false });
-	const unknown = reconcileSite({ site: "s", dsh: null, relay: null });
-	assert.equal(noReader.reason, INCOMPARABLE.NO_READER);
-	assert.equal(unknown.reason, INCOMPARABLE.NO_BILLING);
-	assert.notEqual(reasonText(noReader.reason), reasonText(unknown.reason));
-});
-
 test("an empty range explains itself instead of printing an empty table", () => {
 	const text = renderReport({ range: {}, days: [], models: [], sites: [] });
 	assert.ok(text.includes("没有记录到任何用量"));
 	assert.ok(text.includes("reindex"), "the report should say how to force a rebuild");
-});
-
-test("the evidence badge rides the site row, not a footnote", () => {
-	const text = renderReport({
-		range: { from: "2026-08-14" },
-		days: [{ day: "2026-08-14", tokens: 100, requests: 1 }],
-		models: [{ model: "m", inputTokens: 90, cacheReadTokens: 0, outputTokens: 10, cacheHitRate: null }],
-		sites: [{ site: "nine", tokens: 100 }],
-		reconciliations: {
-			nine: { site: "nine", comparable: true, level: "aggregate", tokens: { delta: { promptTokens: 0 } }, notes: [] }
-		}
-	});
-	const siteLine = text.split("\n").find((l) => l.includes("nine"));
-	assert.ok(siteLine.includes("〔aggregate ✓〕"), `badge missing from: ${siteLine}`);
 });
 
 test("an unpriced model is called out so an em dash is not read as free", () => {
@@ -108,60 +79,6 @@ test("an unpriced model is called out so an em dash is not read as free", () => 
 	});
 	assert.ok(text.includes("不是没花钱"));
 	assert.ok(text.includes("mystery"));
-});
-
-test("a refused comparison is printed, not omitted", () => {
-	const text = renderReport({
-		range: { from: "2026-08-01" },
-		days: [{ day: "2026-08-14", tokens: 10, requests: 1 }],
-		models: [],
-		sites: [{ site: "sub", tokens: 10 }],
-		reconciliations: {
-			sub: {
-				site: "sub",
-				comparable: false,
-				reason: INCOMPARABLE.WINDOW_MISMATCH,
-				relayBalance: { amount: 4.768, currency: "USD" },
-				notes: []
-			}
-		}
-	});
-	assert.ok(text.includes("⚠ 无法比对"));
-	assert.ok(text.includes("生涯累计"));
-	assert.ok(text.includes("$4.7680"), "the balance is still worth showing when the comparison is refused");
-});
-
-test("the reconciliation view shows both sides and the difference", () => {
-	const result = reconcileSite({
-		site: "nine",
-		dsh: { inputTokens: 640, cacheReadTokens: 11_776, cacheWriteTokens: 0, outputTokens: 149, reasoningTokens: 0, requests: 1 },
-		relay: {
-			level: "aggregate",
-			fetchedAt: 1,
-			window: { from: 0, to: 1 },
-			currency: "CNY",
-			capabilities: { perRequest: false, perModel: true, perDay: true, recomputable: true, windowed: true },
-			total: { promptTokens: 12_416, outputTokens: 149, requests: 1, quota: 11_646, listCost: 0.17 }
-		},
-		dshEstimate: { cost: 0.17, currency: "CNY" },
-		window: { from: "a", to: "b" }
-	});
-	const text = renderReconciliation([result]);
-	assert.ok(text.includes("TokenLedger 算的"));
-	assert.ok(text.includes("站点收的"));
-	assert.ok(text.includes("12,416"));
-	assert.ok(text.includes("〔aggregate ✓〕"));
-});
-
-test("renderReconciliation with nothing configured names the config that exists", () => {
-	const text = renderReconciliation([]);
-	assert.ok(text.includes("还没有配置任何中转站"));
-	assert.ok(text.includes("relays"), "must name a key the config actually has");
-	// Regression: it used to tell users to write `sites` and `providerBaseUrls`,
-	// which had already been removed — instructions for config that does nothing.
-	assert.equal(text.includes("providerBaseUrls"), false);
-	assert.equal(text.includes("`sites`"), false);
-	assert.ok(text.includes("用量统计不受影响"), "an unconfigured install is not a broken one");
 });
 
 test("with no relays configured the report shows provider routes, not a useless direct row", () => {
@@ -253,42 +170,6 @@ test("the command sweeps before reporting so figures are not stale", async () =>
 	try {
 		await runCommand("", { store, config: {}, sweep: async () => void swept++ });
 		assert.equal(swept, 1);
-	} finally {
-		store.close();
-	}
-});
-
-test("a site with no billing reader is reported as unread, not as agreeing", async () => {
-	const store = seeded();
-	try {
-		const text = await runCommand("reconcile", {
-			store,
-			config: { sites: [{ id: "nine", type: "newapi", baseUrl: "https://relay.example.com" }] }
-		});
-		assert.ok(text.includes("账单读取器"));
-		assert.equal(text.includes("〔aggregate"), false, "never imply a clean bill it has not earned");
-	} finally {
-		store.close();
-	}
-});
-
-test("a billing reader that throws degrades to unread rather than failing the command", async () => {
-	const store = seeded();
-	try {
-		const text = await runCommand("reconcile", {
-			store,
-			config: {
-				sites: [{ id: "nine", type: "newapi", baseUrl: "https://relay.example.com" }],
-				billing: {
-					nine: async () => {
-						throw new Error("relay down");
-					}
-				}
-			},
-			logger: { warn() {} }
-		});
-		assert.ok(text.includes("nine"));
-		assert.ok(text.includes("⚠"));
 	} finally {
 		store.close();
 	}

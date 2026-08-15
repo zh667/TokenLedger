@@ -33,8 +33,7 @@ import { registerRoutes } from "./http.js";
 import { detectRelaySoftware } from "./adapters/detect.js";
 import { LedgerStore } from "./store.js";
 import { RateTable, priceRows } from "./pricing.js";
-import { reconcileSite } from "./reconcile.js";
-import { renderReconciliation, renderReport } from "./report.js";
+import { renderReport } from "./report.js";
 
 /** `YYYY-MM-DD` for N days before today, in local time. */
 function dayKeyDaysAgo(daysBack) {
@@ -153,8 +152,8 @@ export function normalizeRelayConfig(config = {}) {
  * Attribution needs only the origin match, so a site whose software is not yet
  * known is still usable: `SITE_TYPES` rejects `undefined`, so an unfingerprinted
  * site is registered under a placeholder type it will overwrite once detection
- * answers. The type decides which billing adapter could later be offered; it
- * never decides where a token is counted.
+ * answers. The type decides which balance scheme reads that site; it never
+ * decides where a token is counted.
  *
  * @returns the resolver, or undefined when there are no sites — which
  *   attributes everything to `direct` and still produces a correct per-model
@@ -233,42 +232,6 @@ export async function sweep(persistence, store, options = {}) {
 	}
 
 	return stats;
-}
-
-/**
- * Reconcile every configured site that has a billing reader wired.
- *
- * A site with no reader is reported through `reconcileSite` with a null relay,
- * which already says "cannot compare". Omitting it, or inventing an agreeing
- * row, would both read as a clean bill of health it has not earned.
- */
-async function collectReconciliations(store, config, range, siteFilter, logger, knownSites) {
-	const readers = config.billing ?? {};
-	const configuredSites = knownSites ?? config.sites ?? normalizeRelayConfig(config).sites;
-	const out = [];
-	for (const site of configuredSites) {
-		if (siteFilter !== undefined && site.id !== siteFilter) continue;
-		const reader = readers[site.id];
-		let relay = null;
-		if (typeof reader === "function") {
-			try {
-				relay = await reader({ range });
-			} catch (error) {
-				logger?.warn?.("tokenledger: billing read for %s failed: %s", site.id, error?.message ?? error);
-			}
-		}
-		out.push(
-			reconcileSite({
-				site: site.id,
-				dsh: store.totals(range, site.id),
-				relay,
-				readerConfigured: typeof reader === "function",
-				window: range.from === undefined ? undefined : { from: range.from, to: range.to },
-				allTime: range.from === undefined
-			})
-		);
-	}
-	return out;
 }
 
 /**
@@ -418,8 +381,9 @@ export async function runCommand(rawInput, deps) {
 	}
 
 	// `diagnostics` and `export` existed on the store, and were advertised as
-	// shipped, but no command reached them — the same overclaim as reconciliation,
-	// found while listing what a user can actually type.
+	// shipped, but no command reached them — an overclaim found while listing
+	// what a user can actually type. Reconciliation was the mirror of it: a
+	// command nobody could see, for a feature the product had dropped.
 	if (args[0] === "diagnostics" || args[0] === "doctor") {
 		const d = store.diagnostics();
 		return [
@@ -458,8 +422,7 @@ export async function runCommand(rawInput, deps) {
 	// so a manual invocation sweeps first.
 	await doSweep?.();
 
-	const reconcileOnly = args[0] === "reconcile";
-	const rest = reconcileOnly ? args.slice(1) : args;
+	const rest = args;
 	const days = Number.parseInt(rest[0] ?? "", 10);
 	const site = rest.find((a) => !/^\d+$/.test(a));
 	const range = Number.isFinite(days) && days > 0 ? { from: dayKeyDaysAgo(days - 1) } : {};
@@ -476,24 +439,10 @@ export async function runCommand(rawInput, deps) {
 			"",
 			known.length > 0 ? `有记录的中转站：${known.join("、")}` : "目前还没有任何中转站的记录。",
 			"",
-			"可用子命令：site / export / diagnostics / reindex / reconcile",
+			"可用子命令：site / export / diagnostics / reindex",
 			"（如果你刚看到某个子命令不存在，多半是插件还没更新到那个版本。）"
 		].join("\n");
 	}
-
-	// Only reconcile when a billing reader actually exists, or when explicitly
-	// asked. Sites used to be hand-configured, so a site with no reader was a
-	// half-finished setup worth flagging. Now that they are discovered, that
-	// same warning fires on every relay of every install — a ⚠ on a feature
-	// nobody opted into, telling users something is wrong when nothing is.
-	const wantReconcile = reconcileOnly || Object.keys(config.billing ?? {}).length > 0;
-	const reconciliations = wantReconcile
-		? await collectReconciliations(store, config, range, site, logger, sites?.())
-		: [];
-	if (reconcileOnly) return renderReconciliation(reconciliations);
-
-	const byId = {};
-	for (const r of reconciliations) byId[r.site] = r;
 
 	return renderReport({
 		range,
@@ -501,7 +450,6 @@ export async function runCommand(rawInput, deps) {
 		models: store.byModel(range, site),
 		sites: store.bySite(range),
 		providers: store.byProvider(range, site),
-		reconciliations: byId,
 		priced: config.rates === undefined ? null : priceWithConfiguredRates(store, range, site, config.rates),
 		siteFilter: site
 	});
@@ -561,8 +509,7 @@ export function apply(ctx, userConfig = {}) {
 	/**
 	 * Fingerprint a relay once, in the background. It costs a few unauthenticated
 	 * GETs and saves the user from looking up a `type`. A failure leaves the type
-	 * unknown, which only affects which billing adapter could later be offered —
-	 * never attribution.
+	 * unknown, which only costs that site its balance card — never attribution.
 	 */
 	// Injectable so `apply` can be exercised without reaching the network. Both
 	// bugs a real install found — a sampled service and a discarded fingerprint —
@@ -571,9 +518,10 @@ export function apply(ctx, userConfig = {}) {
 
 	const fingerprint = (site) => {
 		// Off unless asked for. Knowing whether a relay runs New API or Sub2API
-		// only decides which billing adapter could be offered, and billing is
-		// deferred — so by default this would be six unauthenticated requests to
-		// a third party, on every relay, to fill in a column nothing reads.
+		// decides which balance scheme reads it — but the balance card already
+		// triggers that probe lazily, for the one site being asked about. Eager
+		// fingerprinting would instead mean six unauthenticated requests to a
+		// third party, per relay, at mount, for an answer usually never needed.
 		if (config.fingerprint !== true) return;
 		if (site.type !== undefined || asked.has(site.id)) return;
 		asked.add(site.id);

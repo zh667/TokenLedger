@@ -1,7 +1,7 @@
 /**
  * Rate tables and cost estimation.
  *
- * Pricing is the half of reconciliation that makes a difference *explainable*.
+ * Pricing is what turns a token count into a figure you can compare with a bill.
  * A relay sets its own prices, so a local estimate and a site's reported charge
  * differing is normal — the point is to say by how much and why, not to force
  * them to agree.

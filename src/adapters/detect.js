@@ -37,7 +37,7 @@
  * ## What happens to an unknown relay
  *
  * It still works, with less. {@link GENERIC} reports that no billing source was
- * recognized, and reconciliation falls back to DSH-side figures alone — usage
+ * recognized, and the balance card says so rather than guessing — usage
  * accounting keeps working, only the comparison is unavailable. An unrecognized
  * site is never guessed into a known adapter, because reading a Sub2API balance
  * with New API's quota conversion would produce a confident wrong number, which
