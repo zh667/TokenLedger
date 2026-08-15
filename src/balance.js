@@ -55,6 +55,44 @@ export function isOfficialDeepSeek(baseUrl) {
 	}
 }
 
+/**
+ * Origins whose balance is an account fact, keyed by hostname.
+ *
+ * These are vendors, not relays, so nothing is fingerprinted: the origin names
+ * the scheme outright. They also collapse per origin the way DeepSeek does —
+ * two routes pointing at one vendor share one wallet, unlike two keys on one
+ * relay, which hold two separate quotas.
+ *
+ * `currency` is the denomination the vendor bills in where the response does
+ * not carry one; a currency the body reports always wins. It is declared only
+ * for the single-currency regional endpoints, because a number rendered under
+ * the wrong symbol is worse than a number rendered under none.
+ */
+const VENDORS = new Map([
+	["api.deepseek.com", { scheme: "deepseek", displayName: "DeepSeek" }],
+	["openrouter.ai", { scheme: "openrouter", displayName: "OpenRouter" }],
+	["api.moonshot.cn", { scheme: "moonshot", displayName: "Moonshot", currency: "CNY" }],
+	["api.moonshot.ai", { scheme: "moonshot", displayName: "Moonshot" }],
+	["api.z.ai", { scheme: "zai", displayName: "Z.ai" }],
+	["open.bigmodel.cn", { scheme: "zai", displayName: "智谱 GLM", currency: "CNY" }]
+]);
+
+/**
+ * The vendor a provider profile addresses, if it is one we can read.
+ *
+ * Matched on the origin rather than on the route name, for the same reason site
+ * attribution is: a route called `deepseek` may point anywhere, and a route
+ * called anything may point at DeepSeek.
+ */
+export function vendorOf(baseUrl) {
+	if (typeof baseUrl !== "string" || baseUrl === "") return VENDORS.get("api.deepseek.com");
+	try {
+		return VENDORS.get(new URL(baseUrl).hostname.toLowerCase());
+	} catch {
+		return undefined;
+	}
+}
+
 /** Host for display, carrying a non-default port so two on one machine differ. */
 function hostLabel(origin) {
 	const url = new URL(origin);
@@ -93,6 +131,60 @@ export const SCHEMES = {
 				total: num(info?.total_balance),
 				granted: num(info?.granted_balance),
 				toppedUp: num(info?.topped_up_balance)
+			};
+		}
+	},
+
+	openrouter: {
+		label: "OpenRouter",
+		// `/api/v1/credits` wants a **Management Key**, not the `sk-or-v1-` key
+		// that serves inference. The route's own key therefore answers 401 here
+		// for most people, which is a missing capability rather than a fault —
+		// hence the hint, so the card can say which key is wanted.
+		unauthorizedHint: "openrouter-management-key",
+		async read({ origin, get }) {
+			const body = await get(new URL("/api/v1/credits", origin).href);
+			const granted = num(body?.data?.total_credits);
+			const used = num(body?.data?.total_usage);
+			const total = granted !== undefined && used !== undefined ? granted - used : undefined;
+			return {
+				isAvailable: total === undefined ? undefined : total > 0,
+				currency: "USD",
+				total,
+				used,
+				granted
+			};
+		}
+	},
+
+	moonshot: {
+		label: "Moonshot",
+		async read({ origin, get, vendor }) {
+			const body = await get(new URL("/v1/users/me/balance", origin).href);
+			const data = body?.data;
+			const total = num(data?.available_balance);
+			return {
+				isAvailable: total === undefined ? undefined : total > 0,
+				currency: typeof data?.currency === "string" ? data.currency : vendor?.currency,
+				total,
+				granted: num(data?.voucher_balance),
+				toppedUp: num(data?.cash_balance)
+			};
+		}
+	},
+
+	zai: {
+		label: "Z.ai",
+		async read({ origin, get, vendor }) {
+			const body = await get(new URL("/api/paas/v4/balance", origin).href);
+			const data = body?.data;
+			const available = num(data?.available_balance);
+			const total = num(data?.total_balance) ?? available;
+			return {
+				isAvailable: total === undefined ? undefined : total > 0,
+				currency: typeof data?.currency === "string" ? data.currency : vendor?.currency,
+				total: available ?? total,
+				granted: total
 			};
 		}
 	},
@@ -201,7 +293,7 @@ export async function readBalance(options = {}) {
 	};
 
 	try {
-		return { supported: true, fetched: true, scheme, ...(await spec.read({ origin, get })) };
+		return { supported: true, fetched: true, scheme, ...(await spec.read({ origin, get, vendor: vendorOf(origin) })) };
 	} catch (error) {
 		const reason =
 			error?.status !== undefined
@@ -209,7 +301,11 @@ export async function readBalance(options = {}) {
 				: error?.name === "AbortError"
 					? "timeout"
 					: "unreachable";
-		return { supported: true, fetched: false, scheme, reason };
+		// A scheme whose endpoint wants a different credential from the one the
+		// route carries says so, rather than leaving the card on a bare 401 that
+		// reads as "your key is wrong".
+		const hint = error?.status === 401 || error?.status === 403 ? spec.unauthorizedHint : undefined;
+		return { supported: true, fetched: false, scheme, reason, ...(hint === undefined ? {} : { hint }) };
 	} finally {
 		clearTimeout(timer);
 	}
@@ -257,7 +353,7 @@ export function listAccounts(ctx, options = {}) {
 	// silently hid the other.
 	//
 	// DeepSeek is still collapsed, because there the account really is the unit.
-	const seenOfficial = new Set();
+	const seenVendor = new Set();
 	const perHost = new Map();
 	const out = [];
 	for (const entry of entries) {
@@ -268,12 +364,14 @@ export function listAccounts(ctx, options = {}) {
 			continue;
 		}
 		const baseUrl = profile?.baseURL ?? profile?.baseUrl;
-		const official = isOfficialDeepSeek(baseUrl);
-		const origin = official ? (normalizeOrigin(baseUrl) ?? DEEPSEEK_ORIGIN) : normalizeOrigin(baseUrl);
+		const vendor = vendorOf(baseUrl);
+		const origin = isOfficialDeepSeek(baseUrl) ? (normalizeOrigin(baseUrl) ?? DEEPSEEK_ORIGIN) : normalizeOrigin(baseUrl);
 		if (origin === undefined) continue;
-		if (official) {
-			if (seenOfficial.has(origin)) continue;
-			seenOfficial.add(origin);
+		// Vendors collapse per origin: two routes at one vendor draw on one
+		// wallet. Relays do not — there the quota belongs to the key.
+		if (vendor !== undefined) {
+			if (seenVendor.has(origin)) continue;
+			seenVendor.add(origin);
 		}
 		// Keyed by ORIGIN, not hostname: two relays on one machine differ only by
 		// port, and a hostname key had the second inherit the first's software.
@@ -284,11 +382,12 @@ export function listAccounts(ctx, options = {}) {
 			id: entry.provider,
 			route: entry.provider,
 			host,
-			displayName: official ? "DeepSeek" : host,
+			displayName: vendor?.displayName ?? host,
 			origin,
 			// Unknown until something asks — relay software is fingerprinted
-			// lazily, when a balance is actually requested for that site.
-			scheme: official ? "deepseek" : softwareOf.get(origin),
+			// lazily, when a balance is actually requested for that site. A
+			// vendor needs no probe: its origin names its scheme.
+			scheme: vendor?.scheme ?? softwareOf.get(origin),
 			hasCredential: typeof profile?.apiKeyEnv === "string" && profile.apiKeyEnv !== ""
 		});
 	}

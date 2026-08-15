@@ -353,3 +353,25 @@ agent spent them. Only pursue once the plan above is solid.
 - [ ] Extract the relay adapters as their own published package.
 - [ ] Pluggable usage sources so Claude Code, Codex, or OpenCode logs can feed
       the same engine.
+
+## Subscription-plan providers (not implemented)
+
+Three providers expose a *plan quota* rather than a money balance: rolling and
+weekly windows with reset countdowns. Endpoints probed on 2026-08-15 — each
+answers 401 to a bad Bearer while a sibling path under the same prefix answers
+404, so the route exists:
+
+| Provider | Endpoint | Probe |
+|---|---|---|
+| OpenCode Go | `https://opencode.ai/zen/go/v1/usage` | 401 `AuthError`; sibling path → 404 HTML |
+| Kimi For Coding | `https://api.kimi.com/coding/v1/usages` | 401 `unauthenticated`; sibling path → 404 JSON |
+| MiniMax Coding Plan | `https://api.minimax{.io,i.com}/v1/token_plan/remains` | **HTTP 200** with `base_resp.status_code: 1004` |
+
+MiniMax is the trap: it answers **200 on an auth failure** and puts the error in
+`base_resp.status_code`, so a `response.ok` check reads a rejected request as a
+successful one. Any adapter for it must branch on the body, not the status.
+
+These are deliberately out of scope for now. `BalanceCard` renders one amount
+against a total; a plan quota is a set of windows, each with its own limit,
+usage, and reset time. That is a new component, not a new scheme — and the
+existing `SCHEMES` shape cannot express it without lying about what it holds.

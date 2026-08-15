@@ -68,8 +68,13 @@ dsh plugin --profile web remove dsh-tokenledger
 | DeepSeek 官方 | 余额 | provider 的 `apiKeyEnv` | `/user/balance` |
 | New API 系（含 One API、VoAPI 等分支） | 额度 | provider 的 `apiKeyEnv` | `/api/usage/token/` + `/api/status` |
 | Sub2API | 余额 | provider 的 `apiKeyEnv` | `/v1/usage` |
+| Moonshot / Kimi | 余额 | provider 的 `apiKeyEnv` | `/v1/users/me/balance` |
+| 智谱 GLM / Z.ai | 余额 | provider 的 `apiKeyEnv` | `/api/paas/v4/balance` |
+| OpenRouter | 余额 | **Management Key** | `/api/v1/credits` |
 
-三者都只需要一把**普通 API key**——就是你已经配给那条路由、用来发请求的那把。中转站跑的是哪套程序由路由指纹自动判定，在你第一次查它余额时探测一次并记住。
+除 OpenRouter 外都只需要一把**普通 API key**——就是你已经配给那条路由、用来发请求的那把。OpenRouter 的额度接口只认 Management Key，用推理 key 会 401，面板会直接说明要哪一把，而不是丢一个 401 让你去查一把本来没问题的 key。
+
+中转站跑的是哪套程序由路由指纹自动判定，第一次查余额时探测一次并记住。厂商自己的域名不需要探测——origin 直接决定用哪套读法，而且同一厂商的多条路由会合并成一个账户（一个钱包），这跟中转站正好相反。
 
 New API 的额度是**按 key** 的：同一个站上两把 key 是两份额度，面板分别列出。
 

@@ -25,7 +25,7 @@ test("official is decided by origin, not by what the route is called", () => {
 });
 
 test("every scheme answers the same shape, so one card renders all of them", () => {
-	assert.deepEqual(Object.keys(SCHEMES).sort(), ["deepseek", "newapi", "sub2api"]);
+	assert.deepEqual(Object.keys(SCHEMES).sort(), ["deepseek", "moonshot", "newapi", "openrouter", "sub2api", "zai"]);
 	for (const [name, spec] of Object.entries(SCHEMES)) {
 		assert.equal(typeof spec.read, "function", name);
 		assert.equal(typeof spec.label, "string", name);
@@ -420,4 +420,143 @@ test("two relays on one machine are two sites, not one with two ports", async ()
 	// The port already tells them apart, so no route suffix is needed — the
 	// suffix is only for two keys reaching the SAME origin.
 	assert.deepEqual(accounts.map((a) => a.displayName), ["127.0.0.1:7801", "127.0.0.1:7802"]);
+});
+
+// --- vendors with a public balance endpoint -----------------------------------
+//
+// Provenance of the fixtures below: the response *shapes* are taken from
+// `Ychris12138/dsh-usage-stats` (MIT), whose parsers are written against live
+// responses, cross-checked against each vendor's published docs. The endpoints
+// themselves were probed directly on 2026-08-15 — each answers 401 to a bad
+// Bearer while a sibling path under the same prefix answers 404, which is what
+// distinguishes "route exists, credential rejected" from "no such route".
+//
+// What is NOT verified: that a real key returns these bodies. Nobody here holds
+// an OpenRouter, Moonshot, or Z.ai key. If a field name is wrong, the scheme
+// reports `undefined` for it rather than a wrong number — which is the whole
+// reason every field is read defensively instead of destructured.
+
+test("a vendor origin names its scheme outright, with no fingerprint probe", () => {
+	const accounts = listAccounts(
+		ctxWith([piAi("or"), piAi("kimi"), piAi("glm")], {
+			providers: {
+				or: { baseURL: "https://openrouter.ai/api/v1" },
+				kimi: { baseURL: "https://api.moonshot.cn/v1" },
+				glm: { baseURL: "https://open.bigmodel.cn/api/paas/v4" }
+			}
+		}),
+		{ softwareOf: new Map() }
+	);
+	assert.deepEqual(accounts.map((a) => a.scheme), ["openrouter", "moonshot", "zai"]);
+	assert.deepEqual(accounts.map((a) => a.displayName), ["OpenRouter", "Moonshot", "智谱 GLM"]);
+});
+
+test("two routes at one vendor collapse, because they draw on one wallet", () => {
+	// The opposite of the relay rule directly above: there, two keys are two
+	// quotas and must stay apart. Here they are one account seen twice.
+	const accounts = listAccounts(
+		ctxWith([piAi("fast"), piAi("smart")], {
+			providers: {
+				fast: { baseURL: "https://api.moonshot.cn/v1" },
+				smart: { baseURL: "https://api.moonshot.cn/v1" }
+			}
+		})
+	);
+	assert.equal(accounts.length, 1);
+	assert.equal(accounts[0].displayName, "Moonshot");
+});
+
+test("openrouter reports remaining credit, not the top-up total", async () => {
+	const result = await readBalance({
+		scheme: "openrouter",
+		origin: "https://openrouter.ai",
+		apiKey: "sk-or-mgmt",
+		fetch: okJson({ data: { total_credits: 50, total_usage: 12.5 } })
+	});
+	assert.equal(result.total, 37.5, "the headline is what is left, not what was bought");
+	assert.equal(result.used, 12.5);
+	assert.equal(result.granted, 50);
+	assert.equal(result.currency, "USD");
+	assert.equal(result.isAvailable, true);
+});
+
+test("openrouter says which key it wanted, rather than leaving a bare 401", async () => {
+	// `/api/v1/credits` takes a Management Key, not the `sk-or-v1-` inference
+	// key the route carries — so for most people this 401s, and a card reading
+	// only "401" would send them to check a key that is perfectly fine.
+	const result = await readBalance({
+		scheme: "openrouter",
+		origin: "https://openrouter.ai",
+		apiKey: "sk-or-v1-inference",
+		fetch: async () => ({ ok: false, status: 401 })
+	});
+	assert.equal(result.reason, "http-401");
+	assert.equal(result.hint, "openrouter-management-key");
+});
+
+test("a scheme with no hint adds no hint field", async () => {
+	const result = await readBalance({
+		scheme: "deepseek",
+		origin: "https://api.deepseek.com",
+		apiKey: "k",
+		fetch: async () => ({ ok: false, status: 401 })
+	});
+	assert.equal("hint" in result, false);
+});
+
+test("moonshot separates voucher credit from cash", async () => {
+	const result = await readBalance({
+		scheme: "moonshot",
+		origin: "https://api.moonshot.cn",
+		apiKey: "sk-moonshot",
+		fetch: okJson({ code: 0, data: { available_balance: 49.58, voucher_balance: 49.58, cash_balance: 0 } })
+	});
+	assert.equal(result.total, 49.58);
+	assert.equal(result.granted, 49.58, "voucher credit is granted, not bought");
+	assert.equal(result.toppedUp, 0);
+	assert.equal(result.currency, "CNY", "the regional endpoint bills in one currency and does not say so");
+});
+
+test("a currency the body reports beats the one we assumed", async () => {
+	const result = await readBalance({
+		scheme: "moonshot",
+		origin: "https://api.moonshot.cn",
+		apiKey: "k",
+		fetch: okJson({ data: { available_balance: 1, currency: "USD" } })
+	});
+	assert.equal(result.currency, "USD");
+});
+
+test("an unreported currency stays absent rather than being guessed", async () => {
+	// `api.moonshot.ai` is the global endpoint; we do not know what it bills in,
+	// so the card shows a bare number. A number under the wrong symbol is worse.
+	const result = await readBalance({
+		scheme: "moonshot",
+		origin: "https://api.moonshot.ai",
+		apiKey: "k",
+		fetch: okJson({ data: { available_balance: 20 } })
+	});
+	assert.equal(result.total, 20);
+	assert.equal(result.currency, undefined);
+});
+
+test("zai reads available against total", async () => {
+	const result = await readBalance({
+		scheme: "zai",
+		origin: "https://open.bigmodel.cn",
+		apiKey: "glm-key",
+		fetch: okJson({ data: { total_balance: 100, available_balance: 64 } })
+	});
+	assert.equal(result.total, 64);
+	assert.equal(result.granted, 100);
+	assert.equal(result.currency, "CNY");
+});
+
+test("a vendor response missing every field fails soft, with no zeros invented", async () => {
+	for (const scheme of ["openrouter", "moonshot", "zai"]) {
+		const result = await readBalance({ scheme, origin: "https://api.moonshot.cn", apiKey: "k", fetch: okJson({}) });
+		assert.equal(result.fetched, true, scheme);
+		assert.equal(result.total, undefined, `${scheme}: an unreported balance is not a balance of zero`);
+		assert.equal(result.isAvailable, undefined, scheme);
+	}
 });

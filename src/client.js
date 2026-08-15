@@ -1035,12 +1035,16 @@ window.__ModuleLoader__.load({
 				return jsx("p", { className: S.note, children: translate(key) });
 			}
 			if (balance.fetched !== true) {
-				return jsx("p", {
-					className: S.note,
-					children: translate(balance.reason === "no-credential" ? "balance.noKey" : "balance.failed", {
-						reason: balance.reason ?? ""
-					})
-				});
+				// A hint outranks the raw reason: some endpoints want a different
+				// credential from the one the route carries, and "401" alone sends
+				// people to check a key that is perfectly fine.
+				const key =
+					balance.hint !== undefined
+						? `balance.hint.${balance.hint}`
+						: balance.reason === "no-credential"
+							? "balance.noKey"
+							: "balance.failed";
+				return jsx("p", { className: S.note, children: translate(key, { reason: balance.reason ?? "" }) });
 			}
 
 			// A remaining balance when there is one; otherwise what this key has
@@ -1427,6 +1431,7 @@ window.__ModuleLoader__.load({
 			"balance.unknownSoftware": "认不出这个中转站跑的是什么程序，读不了余额。",
 			"balance.unknownAccount": "找不到这个账户。",
 			"balance.failed": "余额读取失败（{reason}）。",
+			"balance.hint.openrouter-management-key": "OpenRouter 的额度接口要的是 Management Key，不是这条路由用的推理 key。",
 			"balance.noKey": "这条路由没有配置密钥，查不了余额。",
 			"balance.active": "账户可用",
 			"balance.inactive": "账户不可用",
@@ -1504,6 +1509,7 @@ window.__ModuleLoader__.load({
 			"balance.unknownSoftware": "This relay runs software we do not recognise, so its balance cannot be read.",
 			"balance.unknownAccount": "No such account.",
 			"balance.failed": "Could not read the balance ({reason}).",
+			"balance.hint.openrouter-management-key": "OpenRouter's credits endpoint wants a Management Key, not the inference key this route uses.",
 			"balance.noKey": "That route has no key configured.",
 			"balance.active": "Account active",
 			"balance.inactive": "Account inactive",
