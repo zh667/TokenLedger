@@ -75,7 +75,7 @@ byModel(days, {}, "nine"); // 只看某个站的模型分布
 | 费率表（生效日期 / 分桶计价 / 峰谷时段） | ✅ |
 | 费用估算（未定价返回 null 而非 0） | ✅ |
 | CSV / JSON 导出与索引诊断 | ✅ |
-| 中转站软件指纹识别（零凭证） | ✅ |
+| 中转站软件指纹识别（零凭证） | ✅ 默认关闭，见下 |
 | **中转站自动发现**（读宿主 provider 配置，零配置） | ✅ |
 | `/tokenledger site add\|rm\|list`（不用改文件） | ✅ |
 | 接真实 DSH 会话日志 | ✅ 已端到端验证 |
@@ -116,7 +116,14 @@ ctx.llm.listConfigurableProviders()   // 每条 provider 路由的配置存放�
 ctx.settings.get(那个命名空间)         // 沿 settingsPath 走到 profile，取 baseURL
 ```
 
-按 origin 分组，域名就是站名，跑的哪套软件由后台指纹识别得出（不用凭据）。**profile 里紧挨着 `baseURL` 的那个凭据引用一个字节都不读**——只取 `baseURL` 这一个字段，站点记录本身也拒收 `apiKey` / `token`，两道。
+按 origin 分组，域名就是站名。**profile 里紧挨着 `baseURL` 的那个凭据引用一个字节都不读**——只取 `baseURL` 这一个字段，站点记录本身也拒收 `apiKey` / `token`，两道。
+
+识别中转站跑的是 New API 还是 Sub2API（`detectRelaySoftware`，零凭据）**默认关闭**：它唯一的用途是挑选账单适配器，而账单已后置，开着就是对第三方发六个没人读的请求。要开：
+
+```yaml
+tokenledger:
+  fingerprint: true
+```
 
 想看发现到了什么：
 

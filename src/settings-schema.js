@@ -53,6 +53,13 @@ export function buildSchema(z) {
 		relays: z.dict(relay),
 		/** Origins that are a vendor's own endpoint, so not a relay site. */
 		officialOrigins: z.array(z.string()),
+		/**
+		 * Probe each relay to identify its software. Off by default: the answer
+		 * only selects a billing adapter, and billing is deferred, so leaving it
+		 * on means unauthenticated requests to a third party for a column nothing
+		 * currently reads.
+		 */
+		fingerprint: z.boolean().default(false),
 		/** Rollup database path. */
 		database: z.string().default("tokenledger.sqlite"),
 		/** Milliseconds between background sweeps; 0 disables the timer. */

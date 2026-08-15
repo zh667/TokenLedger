@@ -306,7 +306,10 @@ export function describeProbe(site, probe) {
 		case "unrecognized":
 			return `未识别${probe.reason === undefined ? "" : `：${probe.reason}`}`;
 		default:
-			return "未探测";
+			// Nothing asked, so there is nothing to say. An earlier version printed
+			// a placeholder here, which read as a failure on every site of every
+			// install that had simply never opted into fingerprinting.
+			return undefined;
 	}
 }
 
@@ -337,7 +340,12 @@ async function runSiteCommand(args, deps) {
 		const lines = known.map((s) => {
 			const how = s.discovered === false ? "手动" : "自动发现";
 			const routes = (s.routes ?? []).join(", ") || "—";
-			return `  ${s.id}  〔${how} · ${describeProbe(s, probes.get(s.id))}〕  路由：${routes}`;
+			// The software is shown only when something actually determined it.
+			// Printing a placeholder for every site turned a column nothing needs
+			// into the most prominent thing on the line.
+			const probe = describeProbe(s, probes.get(s.id));
+			const badge = probe === undefined ? how : `${how} · ${probe}`;
+			return `  ${s.id}  〔${badge}〕  路由：${routes}`;
 		});
 		return [`中转站（${known.length}）：`, ...lines, "", "改：`/tokenledger site add <路由名> <地址>` 或 `site rm <路由名>`"].join("\n");
 	}
@@ -511,6 +519,11 @@ export function apply(ctx, userConfig = {}) {
 	const detect = config.detect ?? detectRelaySoftware;
 
 	const fingerprint = (site) => {
+		// Off unless asked for. Knowing whether a relay runs New API or Sub2API
+		// only decides which billing adapter could be offered, and billing is
+		// deferred — so by default this would be six unauthenticated requests to
+		// a third party, on every relay, to fill in a column nothing reads.
+		if (config.fingerprint !== true) return;
 		if (site.type !== undefined || asked.has(site.id)) return;
 		asked.add(site.id);
 		probes.set(site.id, { state: "pending" });

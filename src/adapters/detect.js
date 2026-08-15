@@ -46,6 +46,8 @@
  * @module dsh-tokenledger/adapters/detect
  */
 
+import { normalizeOrigin } from "../relay-sites.js";
+
 /** A route answering anything other than 404 is taken to exist. */
 const EXISTS = (status) => status !== 404 && status !== 0;
 
@@ -167,7 +169,14 @@ export function scoreFingerprint(statuses) {
 export async function detectRelaySoftware(origin, options = {}) {
 	const doFetch = options.fetch ?? globalThis.fetch;
 	const paths = options.paths ?? PROBE_PATHS;
-	const base = String(origin).replace(/\/+$/, "");
+	// Every probe path is absolute from the origin, so anything after the host
+	// must be dropped. Callers hand over a provider's configured base URL, which
+	// normally ends in `/v1`: appending `/api/status` to that asks for
+	// `https://host/v1/api/status`, which every relay answers 404. Six 404s then
+	// disqualify every signature, and the site reports as unrecognized while the
+	// same host fingerprints perfectly from its bare origin. That is a real
+	// install's "unidentified", diagnosed only after the probe table was printed.
+	const base = normalizeOrigin(origin) ?? String(origin).replace(/\/+$/, "");
 	const statuses = {};
 
 	await Promise.all(

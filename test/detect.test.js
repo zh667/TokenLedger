@@ -243,3 +243,34 @@ test("a clean match is not decorated with a diagnosis it does not need", async (
 	assert.equal(result.unreachable, undefined);
 	assert.equal(result.undiscriminating, undefined);
 });
+
+test("a base URL's path is dropped before probing", async () => {
+	// The defect behind a real install's "unidentified". Provider base URLs
+	// normally end in `/v1`, and every probe path is absolute from the origin, so
+	// appending them produced `https://host/v1/api/status` — 404 for all six
+	// paths, which disqualifies every signature. The same host fingerprints
+	// perfectly from its bare origin, which is why probing it by hand looked fine.
+	const asked = [];
+	const result = await detectRelaySoftware("https://relay.example/v1/", {
+		fetch: async (url) => {
+			asked.push(String(url));
+			return { status: /\/v1\/usage$/.test(String(url)) ? 404 : 200 };
+		}
+	});
+	assert.equal(result.software, "newapi", "probing under the base path finds nothing");
+	assert.ok(
+		asked.every((u) => u.startsWith("https://relay.example/api") || u === "https://relay.example/v1/usage"),
+		`probe URLs kept the base path: ${asked.join(" ")}`
+	);
+});
+
+test("an origin with a port survives normalization", async () => {
+	const asked = [];
+	await detectRelaySoftware("http://127.0.0.1:3000/v1", {
+		fetch: async (url) => {
+			asked.push(String(url));
+			return { status: 404 };
+		}
+	});
+	assert.ok(asked.every((u) => u.startsWith("http://127.0.0.1:3000/")), asked.join(" "));
+});

@@ -120,6 +120,8 @@ test("a fingerprint answer survives the next sweep", async () => {
 	apply(ctx, {
 		database: ":memory:",
 		sweepIntervalMs: 0,
+		// Off by default now; this test is about what happens once it is on.
+		fingerprint: true,
 		detect: async () => {
 			asks++;
 			return { billingAvailable: true, software: "newapi", confidence: 1 };

@@ -371,7 +371,7 @@ test("`site list` distinguishes discovered from hand-written, and lists every ro
 	}
 });
 
-test("the four ways a site can lack a type read differently", () => {
+test("the ways a site can lack a type read differently", () => {
 	// They used to print one word, so the only way to tell "still probing" from
 	// "the probe could not be made" from "no known program matches" was to open
 	// the DSH log — which is exactly what a user should not have to do to read
@@ -380,7 +380,30 @@ test("the four ways a site can lack a type read differently", () => {
 	assert.equal(describeProbe({}, { state: "pending" }), "探测中…");
 	assert.ok(describeProbe({}, { state: "failed", reason: "fetch failed" }).includes("fetch failed"));
 	assert.ok(describeProbe({}, { state: "unrecognized", reason: "没匹配上" }).includes("没匹配上"));
-	assert.equal(describeProbe({}, undefined), "未探测");
+});
+
+test("a site nobody probed says nothing about software at all", () => {
+	// Fingerprinting is off by default — it only picks a billing adapter, and
+	// billing is deferred. A placeholder here appeared on every site of every
+	// install and read as a failure of something nobody had asked for.
+	assert.equal(describeProbe({}, undefined), undefined);
+});
+
+test("the listing omits the software badge entirely when nothing determined it", async () => {
+	const store = emptyStore();
+	try {
+		const text = await runCommand("site", {
+			store,
+			config: {},
+			sites: () => [{ id: "api.relay-one.example", routes: ["api99"], discovered: true }],
+			probeStatus: () => new Map()
+		});
+		assert.ok(text.includes("〔自动发现〕"), `badge should carry provenance alone: ${text}`);
+		assert.equal(text.includes("未识别"), false);
+		assert.equal(text.includes("未探测"), false);
+	} finally {
+		store.close();
+	}
 });
 
 test("`site list` waits briefly so a first run reports a real answer", async () => {
