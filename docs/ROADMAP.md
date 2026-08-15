@@ -38,7 +38,9 @@ codebase as a library — see [Deferred](#deferred-reconciliation).
 | `/tokenledger` report command | ✅ shipped |
 | New API / Sub2API billing adapters | ✅ library only, **never wired to config** |
 | Reconciliation engine | ✅ library only, **not reachable by a user** |
-| Web UI | ✗ not started, deliberately — see [Later](#later--sidebar-panel) |
+| Web UI — sidebar panel, site filter, activity strip, sortable models | ✅ shipped |
+| DeepSeek official balance | ✅ shipped (that vendor only, deliberately) |
+| Settings-page plugin card | ⛔ blocked upstream by a seven-name allowlist |
 
 `dsh-tokenledger@0.0.1`, zero runtime dependencies, 128 tests, unpublished.
 
@@ -153,15 +155,36 @@ What it would take to finish: a credential seam (a reference to
 `collectReconciliations` — which today reads `config.billing[siteId]`, a map of
 **functions** that only tests can supply.
 
-## Next — the web UI
+## Shipped — the web UI
 
-Planned in [`UI-PLAN.md`](UI-PLAN.md) on 2026-08-15: style referenced from New
-API, layout from `dsh-usage-stats`, five phases starting with the one unverified
-step (a third-party host RPC). Feature-by-feature comparison against that plugin
-is in [`COMPARISON.md`](COMPARISON.md), including the claim it disproved — this
-document's earlier assertion that no usage plugin records relay attribution.
+Built 2026-08-15. Plan and its post-mortem in [`UI-PLAN.md`](UI-PLAN.md);
+feature comparison against `dsh-usage-stats` in [`COMPARISON.md`](COMPARISON.md),
+including the claim it disproved — this document's earlier assertion that no
+usage plugin records relay attribution.
 
-The background research below stands and is what the plan builds on.
+Four defects reached a real install before being caught, all of them invisible
+to the tests and to local reasoning, and all found by asking the affected
+machine for data:
+
+1. The loader entry named a subpath (`dsh-tokenledger/plugin`). The client
+   scanner resolves `<entryName>/package.json`, so the throw was swallowed as
+   "not a client package" and cached forever. No error anywhere.
+2. `webServer` was sampled with `ctx.get` at mount instead of waited for, so
+   the routes never registered — the third time that same mistake shipped.
+3. The balance result's `ok` overwrote its envelope's `ok`, so a served request
+   with no key read as a failed one and rendered nothing.
+4. **The panel was laid out past the sidebar's right edge.** `sidebar.footer.action`
+   is a list slot whose container is a nowrap row, and every occupant claims
+   `width:100%`. One plugin: fine. Two: the second overflows off the panel,
+   visible and `opacity: 1` at `x: 268` in a column ending at 268 — identical
+   in appearance to never having loaded.
+
+The common thread: every one of them was diagnosed only after getting a
+measurement from the machine that had the problem. Local reproduction kept
+"passing" because the local profile had one plugin installed and the affected
+one had two.
+
+The background research below is what the plan was built on.
 
 ## Background — sidebar panel
 

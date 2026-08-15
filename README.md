@@ -86,22 +86,32 @@ byModel(days, {}, "nine"); // 只看某个站的模型分布
 | New API 适配器（余额 / 聚合 / 请求级 + 扣费复算） | ⚠️ 库函数可用，**未接到配置** |
 | Sub2API 适配器（余额 / 累计 / 双费用口径） | ⚠️ 库函数可用，**未接到配置** |
 | 对账引擎（证据等级 / 拒绝不可比） | ⚠️ 库函数可用，**用户无法触达** |
-| 侧栏面板 | ⬜ 见下 |
+| **侧栏面板**（徽标 + 浮层，含站点筛选、活动条、可排序模型表） | ✅ |
+| DeepSeek 官方余额 | ✅ 只做官方，见下 |
+| 设置页里的插件配置卡片 | ⛔ 被上游白名单挡死，见下 |
 | 发 npm / 提交索引收录 | ⬜ |
 
 那三条 ⚠️ 之前标的是 ✅。引擎本身确实是 ✅，但 `collectReconciliations` 读的是 `config.billing[站点id]`——一个**函数**的映射，YAML 里写不出来，只有测试能注入；`NewApiClient` / `Sub2ApiClient` 在插件路径里一次都没有被构造。所以对真实用户来说这个功能是不通的，标 ✅ 属于失实。
 
-### 界面为什么还没做
+### 侧栏面板
 
-**设置页里那张插件配置卡片：进不去。** `dsh-host-apiproxy` 用一个硬编码的七项白名单（`agent-loop`、`shell`、`locale`、`permission`、`ui-conversation`、`ui-theme`、`web-search-deepseek`）决定哪些 settings 命名空间能下发给浏览器，其余一律 `settings-not-exposed`。上游自己把改法记为待办：
+齿轮上方多一个「用量账本」入口，点开是浮层：官方余额、统计卡（tokens / 请求 / 估算费用）、**中转站分布（点一行就筛选整个面板）**、绿色活动条、可排序的模型表、底部索引诊断。区间切换今日 / 7 天 / 30 天 / 全部。
+
+**每个数字都来自 `/tokenledger` 用的同一批 store 查询**，页面不做二次聚合，所以两边不可能对不上——「面板数字等于命令数字」就是它的验收标准。
+
+风格照 DSH 自己来，不是照中转站后台：无彩色、靠 alpha 边框分层、圆角 12/8/6、字号 11–14、零渐变。唯一的彩色是活动条的绿色梯度——绿色代表活跃是一眼可读的惯例，而且它是数据不是外壳。
+
+实现上**没有打包步骤**：客户端半边是手写的 `__ModuleLoader__` bundle，React 由宿主作为 peer 提供。原本以为要引一条 tsdown 链，读完 `dsh-client-modules` 才发现不需要——代价从一整条工具链变成了一个文件。
+
+> **余额只做 DeepSeek 官方。** `dsh-usage-stats` 已经覆盖 DeepSeek / OpenRouter / Moonshot / Z.AI 四家，再做一遍只是个更差的副本。只有中转站的部署会显示一行说明而不是空卡片——中转站本来就没有 `/user/balance`，在那儿标红是把没问题的事报成问题。
+
+### 设置页里那张卡片进不去
+
+`dsh-host-apiproxy` 用一个硬编码的七项白名单（`agent-loop`、`shell`、`locale`、`permission`、`ui-conversation`、`ui-theme`、`web-search-deepseek`）决定哪些 settings 命名空间能下发给浏览器，其余一律 `settings-not-exposed`。上游自己把改法记为待办：
 
 > Moving that declaration to `settings.register()`, so a plugin can expose its own configuration without a change in this package, is deferred work.
 
-注意这只挡**浏览器**那条 settings RPC。宿主侧的 `ctx.settings.get/register/update` 不受影响——自动发现和 `/tokenledger site` 正是靠它做到的。
-
-**侧栏入口：能做，故意先不做。** 位置是 `sidebar.footer.action`（齿轮旁边那一排，`list` 插槽，目前只有一个占用者），面板挂 `shell.overlay`，抄 `dsh-client-ui-cordis` 十来行就能注册。代价是要带一个 React 浏览器半边、约 6 个 `@deepseek-ai/dsh-client-*` peer 依赖、一条本包现在没有的打包链，以及一块零测试覆盖的表面；还有一个没查清的点：第三方插件怎么注册自己的 RPC 给面板取数。
-
-顺序上先把命令行这边补完整，再给一个完整的能力加入口，而不是给半截功能加壳。
+注意这只挡**浏览器**那条 settings RPC。宿主侧的 `ctx.settings.get/register/update` 不受影响——自动发现、`/tokenledger site`、以及面板读数据的那条 `webServer` 路由都靠它。
 
 ### 作为 DSH 插件安装
 

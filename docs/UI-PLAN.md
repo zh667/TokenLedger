@@ -1,7 +1,7 @@
-# Web UI plan
+# Web UI plan, and what it got wrong
 
-Rewritten 2026-08-15 after the repository owner's four decisions. Research is
-complete — nothing here is blocked on an unknown. Implementation is starting.
+Written and executed 2026-08-15. **Shipped** — kept as the record of the
+decisions and of where the plan was mistaken. The post-mortem is at the bottom.
 
 ## Decisions
 
@@ -75,9 +75,13 @@ fence. The pattern to copy, and the reasoning behind it:
 - check the `Host` header for loopback as well, as a second condition, never as
   the only one.
 
-We reach it through `ctx.get("webServer")` rather than `inject`, keeping the
-collector alive on a composition with no web server — the same optional-service
-idiom already used for `commands`, `settings` and `llm`.
+~~We reach it through `ctx.get("webServer")` rather than `inject`~~ — **this
+line was wrong and shipped as a bug.** `ctx.get` answers `undefined` for a
+service that mounts later, and `webServer` is one of them, so the routes never
+registered and the panel got a 404 from a plugin whose host half had visibly
+loaded. The correct form keeps the service optional without sampling it:
+`ctx.inject(["webServer"], …)`, which waits and re-runs. Third time that same
+mistake shipped in this package, after `settings` twice.
 
 ## Layout
 
@@ -147,3 +151,49 @@ not worth the code.
 ~6 `@deepseek-ai/dsh-client-*` peers plus React 18, a bundling step where today
 there is none, and a surface that starts with zero test coverage against 184 on
 the Node side. Batch B's equality check is the mitigation.
+
+---
+
+## Post-mortem
+
+Everything above shipped. Four things the plan called wrong, recorded because
+each cost real time.
+
+**The bundler was imaginary.** "Cost" budgeted a tsdown pipeline and six peer
+dependencies. Reading how `dsh-usage-stats` ships its browser half showed none
+is needed: the module system materializes a registered factory and hands it a
+synchronous `require`, so React arrives from the host and
+`window.__ModuleLoader__.load({id, factory})` is the whole contract. A hand-
+written file, no build step, no peers. The lesson is the same one that produced
+the `settings`-vs-`cordis.patch.yml` finding earlier: read how a working
+neighbour actually does it before budgeting for infrastructure.
+
+**Phases C and D should never have existed.** They were "add interaction" and
+"add states and i18n" — but a component without its selection handling, its
+empty state and its dictionary keys is not a finished component, it is one that
+must be opened twice. Merging them into B was strictly better. A phase boundary
+belongs where a dependency is, not where a category is.
+
+**"Verified locally" was false four times.** The local profile had one plugin
+installed; the affected machine had two. Every local run passed while the panel
+was rendered off-screen on the real install. The panel-missing bug was finally
+found by asking for a DOM measurement — `x: 268` in a column ending at 268 —
+not by any amount of local reproduction. When a symptom is "I can't see it",
+ask for coordinates first and reproduce second.
+
+**Three of the four shipped defects were silent by construction.** A cached
+"not a client package" verdict, a service sampled before it mounted, an `ok`
+field overwritten by a spread. None raised an error anywhere. The mitigation
+that actually worked was making the browser half narrate its lifecycle and
+putting the package version in every payload — after which the next report
+carried its own diagnosis.
+
+## What the batches actually were
+
+| Planned | Actual |
+|---|---|
+| A1 host route, A2 seat | as planned, in parallel |
+| B six components | merged with C and D; each section shipped complete |
+| C interaction | folded into B |
+| D polish | folded into B |
+| — | four rounds of real-install defects, none predicted |
