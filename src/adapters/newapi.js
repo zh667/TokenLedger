@@ -62,6 +62,8 @@
  * @module dsh-tokenledger/adapters/newapi
  */
 
+import { round6 } from "../pricing.js";
+
 /** Log `type` for consumption rows. Other types are logins, top-ups, admin ops. */
 export const CONSUME_LOG_TYPE = 2;
 
@@ -283,10 +285,6 @@ export function quotaToMoney(quota, units) {
 	const display =
 		usd !== null && units.pricePerUnit !== undefined ? round6(usd * units.pricePerUnit) : null;
 	return { quota: amount, usd, display, currency: units.displayCurrency };
-}
-
-function round6(v) {
-	return Math.round(v * 1e6) / 1e6;
 }
 
 /**

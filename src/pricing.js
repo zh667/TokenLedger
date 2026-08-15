@@ -186,8 +186,19 @@ export function estimateCost(buckets, rate) {
 	};
 }
 
-/** Round to six decimals — enough for per-request costs, short of float noise. */
-function round6(value) {
+/**
+ * The project's one money-rounding rule: six decimals.
+ *
+ * Six rather than the two a currency displays, because bucket pricing works in
+ * per-token unit prices around 1e-6 — round a single call's cost to fewer
+ * places and small calls become exactly zero, which then sum to zero. Six is
+ * also short of the point where float noise starts showing through, so the
+ * figures stay addable.
+ *
+ * Everything that produces a money figure rounds here, so a total and its parts
+ * cannot disagree about the last digit.
+ */
+export function round6(value) {
 	return Math.round(value * 1e6) / 1e6;
 }
 

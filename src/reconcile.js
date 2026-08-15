@@ -29,6 +29,7 @@
  */
 
 import { inputTotal } from "./usage.js";
+import { round6 } from "./pricing.js";
 
 /** Evidence strength a comparison can carry, weakest first. */
 export const LEVEL_ORDER = Object.freeze(["none", "summary", "aggregate", "request"]);
@@ -81,10 +82,6 @@ function subtractMoney(a, b) {
 		return { amount: null, currency: undefined, currencyMismatch: true };
 	}
 	return { amount: round6(a.amount - b.amount), currency: a.currency, currencyMismatch: false };
-}
-
-function round6(v) {
-	return Math.round(v * 1e6) / 1e6;
 }
 
 function pct(delta, base) {
