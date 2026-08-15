@@ -1,0 +1,13 @@
+{
+  "_comment": "Ready-to-paste entry for dshworks/awesome-dsh-plugins data/plugins.json. Validated against that repo's data/schema.json on 2026-08-15: every required field present, category and tags from the allowed enums, no extra keys (the schema sets additionalProperties: false, so this _comment must be deleted before pasting). Machine fields (stars, starsUpdated, pushedAt) are deliberately omitted — the repo's scripts/stars.mjs fills them and CONTRIBUTING says they are not worth editing by hand. Set lastVerified to the day you actually run the check, and keep status honest: verified requires that you loaded it against verifiedAgainst yourself.",
+  "name": "tokenledger",
+  "repo": "zh667/TokenLedger",
+  "npm": "dsh-tokenledger",
+  "description": "Token usage accounting attributed to the relay site that served each request, discovered from your own provider configuration — no setup and no credentials",
+  "category": "plugin",
+  "added": "2026-08-15",
+  "lastVerified": "2026-08-15",
+  "verifiedAgainst": "0.1.0-rc.6",
+  "status": "verified",
+  "tags": ["usage", "observability"]
+}
