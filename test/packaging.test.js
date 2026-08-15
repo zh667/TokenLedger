@@ -9,7 +9,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
@@ -79,6 +79,32 @@ test("no official @deepseek-ai package is a hard dependency", () => {
 			pkg.peerDependenciesMeta?.[name]?.optional,
 			true,
 			`${name} is loaded through a dynamic import the caller recovers from, so it must be an optional peer`
+		);
+	}
+});
+
+test("no source file contains a raw control byte", () => {
+	// This has now happened twice: a NUL written literally into a template
+	// literal as a key separator, once in `adapters/newapi.js` and once in
+	// `http.js`. Node parses it fine and every test passes, so nothing surfaces
+	// it — but `file` reports the source as binary and **grep skips the whole
+	// file**. Three hundred lines then become invisible to every repository-wide
+	// search, including the credential scan run before each commit. `\u0000`
+	// compiles to the same string and leaves the file text.
+	const root = new URL("../src/", import.meta.url);
+	const walk = (dir) =>
+		readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+			const child = new URL(entry.name + (entry.isDirectory() ? "/" : ""), dir);
+			return entry.isDirectory() ? walk(child) : entry.name.endsWith(".js") ? [child] : [];
+		});
+
+	for (const file of walk(root)) {
+		const bytes = readFileSync(file);
+		const at = bytes.findIndex((b) => b < 0x09 || (b > 0x0d && b < 0x20));
+		assert.equal(
+			at,
+			-1,
+			`${file.pathname.split("/src/")[1]} holds a raw 0x${bytes[at]?.toString(16).padStart(2, "0")} byte at offset ${at}; write it as an escape so grep can still read the file`
 		);
 	}
 });
