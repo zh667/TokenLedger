@@ -61,9 +61,9 @@ byModel(days, {}, "nine"); // 只看某个站的模型分布
 
 ## 状态
 
-共 **152 个测试**。运行时依赖只有一个可选 peer：`@deepseek-ai/schemastery`，用来声明 settings 命名空间。它已经在 DSH 的依赖树里，用户不会因此多装任何东西；没有它插件照常跑，只是配置退回 `cordis.patch.yml` 且 `/tokenledger site` 存不了盘。SQLite 用 Node 内置的 `node:sqlite`。
+共 **152 个测试**。运行时依赖只有一个：`@deepseek-ai/schemastery`（108 KB，用来声明 settings 命名空间）。SQLite 用 Node 内置的 `node:sqlite`。
 
-（早期版本宣称「零运行时依赖」。加上这个 peer 之后那句话不再成立，所以撤回。）
+（早期版本宣称「零运行时依赖」，现在不成立了，撤回。曾想声明成可选 peer 靠 DSH 那份，但 pnpm 不会自动装可选 peer，能不能解析到取决于提升策略——赌不起，就自己带一份。`dsh-settings` 的 `resolve()` 只是 `schema(value)` 一个普通调用，没有 `instanceof` 检查，所以多一份副本不会出问题。）
 
 | 模块 | 状态 |
 |---|---|

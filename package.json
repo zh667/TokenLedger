@@ -51,15 +51,7 @@
       "patch": "./cordis.patch.yml"
     }
   },
-  "peerDependencies": {
-    "@deepseek-ai/schemastery": "^3.18.1"
-  },
-  "peerDependenciesMeta": {
-    "@deepseek-ai/schemastery": {
-      "optional": true
-    }
-  },
-  "devDependencies": {
+  "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.1"
   }
 }
