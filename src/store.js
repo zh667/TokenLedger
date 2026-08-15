@@ -316,7 +316,7 @@ export class LedgerStore {
 			.sort((a, b) => b.tokens - a.tokens);
 	}
 
-	/** Per-site totals — the DSH side of a reconciliation. */
+	/** Per-site totals — the panel's site breakdown and the report's. */
 	bySite(range = {}) {
 		const { sql, params } = rangeClause(range);
 		return this.#db
@@ -331,7 +331,7 @@ export class LedgerStore {
 	 *
 	 * Always available with no configuration at all, because the route name
 	 * rides every usage record. Grouping routes into relay sites is a separate,
-	 * optional step that exists for billing reconciliation — basic attribution
+	 * optional step, kept for cost estimation — basic attribution
 	 * should not have to wait for it.
 	 */
 	byProvider(range = {}, site = undefined) {

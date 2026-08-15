@@ -55,7 +55,7 @@ export function buildSchema(z) {
 		officialOrigins: z.array(z.string()),
 		/**
 		 * Probe each relay to identify its software. Off by default: the answer
-		 * only selects a billing adapter, and billing is deferred, so leaving it
+		 * only labels the site in diagnostics, so leaving it
 		 * on means unauthenticated requests to a third party for a column nothing
 		 * currently reads.
 		 */

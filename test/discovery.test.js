@@ -265,50 +265,6 @@ const relayTraffic = (at = Date.now()) => {
 	return store;
 };
 
-test("a discovered relay with no billing reader is not decorated with a warning", async () => {
-	// Sites used to be hand-written, so one without a reader meant a
-	// half-finished setup. Now that they are discovered, that same warning would
-	// fire on every relay of every install — a ⚠ about a feature nobody opted
-	// into, which reads as "something is broken" when nothing is.
-	const store = relayTraffic();
-	try {
-		const text = await runCommand("", { store, config: {}, sites: () => [{ id: "api.relay-one.example" }] });
-		assert.ok(text.includes("api.relay-one.example"), "the site itself is still reported");
-		assert.equal(text.includes("⚠"), false, `unasked-for warning: ${text}`);
-		assert.equal(text.includes("账单读取器"), false);
-	} finally {
-		store.close();
-	}
-});
-
-test("asking for reconcile explicitly still explains why it cannot", async () => {
-	const store = relayTraffic();
-	try {
-		const text = await runCommand("reconcile", {
-			store,
-			config: {},
-			sites: () => [{ id: "api.relay-one.example" }]
-		});
-		assert.ok(text.includes("账单读取器"), "the explanation belongs where it was asked for");
-	} finally {
-		store.close();
-	}
-});
-
-test("configuring a billing reader brings the comparison back into the report", async () => {
-	const store = relayTraffic();
-	try {
-		const text = await runCommand("", {
-			store,
-			config: { billing: { "api.relay-one.example": async () => null } },
-			sites: () => [{ id: "api.relay-one.example" }]
-		});
-		assert.ok(text.includes("⚠"), "opting in means you want to hear about it");
-	} finally {
-		store.close();
-	}
-});
-
 // --- the site subcommand ----------------------------------------------------
 
 const emptyStore = () => LedgerStore.open(":memory:");

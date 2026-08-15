@@ -375,3 +375,24 @@ These are deliberately out of scope for now. `BalanceCard` renders one amount
 against a total; a plan quota is a set of windows, each with its own limit,
 usage, and reset time. That is a new component, not a new scheme — and the
 existing `SCHEMES` shape cannot express it without lying about what it holds.
+
+## Reconciliation: removed
+
+Removed in the audit sweep, closing issue #1. It had become the most expensive
+possible state: 934 lines of source and 59 tests, a `/tokenledger reconcile`
+command a user could type, no mention anywhere in the README, and a dependency
+on config keys that had already been deleted.
+
+The product reason has not changed and is unlikely to: New API's per-request
+consumption log lives behind `/api/log`, an administrator route. Only a relay's
+owner can read it, so for essentially every user of this plugin the comparison
+had no left-hand side to compare against.
+
+What survived, because it earns its place independently:
+
+- `pricing.js` — cost estimation from a configured rate table
+- `adapters/detect.js` — relay fingerprinting, which now selects a balance scheme
+- `balance.js` — the New API and Sub2API balance readers, which need only an
+  ordinary key and are what the panel actually shows
+
+The engine is in git history at `1828c44~1` if it is ever wanted back.

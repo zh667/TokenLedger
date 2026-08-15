@@ -2,7 +2,7 @@
  * Per-day, per-route token-usage aggregation over DSH session event logs.
  *
  * A *route* is the triple `(relay site, provider, model)`. Recording the site
- * alongside the provider is what makes reconciliation possible: the same model
+ * alongside the provider is what makes site attribution possible: the same model
  * bought through two different relays must never collapse into one bucket, and
  * the same relay serving several models must be summable on its own.
  *
@@ -396,7 +396,7 @@ export function byModel(byDay, range = {}, site = undefined) {
 
 /**
  * Group a per-day map by relay site over a date range. This is the DSH-side
- * half of a reconciliation: each row is what TokenLedger believes was spent at
+ * the DSH side of the ledger: each row is what TokenLedger believes was spent at
  * one site, ready to be compared against that site's own reported figures.
  */
 export function bySite(byDay, range = {}) {
