@@ -99,8 +99,15 @@ function hostLabel(origin) {
 	return url.port === "" ? url.hostname : `${url.hostname}:${url.port}`;
 }
 
-/** Parse a number that an API may send as a string. */
-function num(value) {
+/**
+ * Parse a number an API may send as a string.
+ *
+ * Named for its direction. `report.js` exports a `num` that goes the other way
+ * — number to display string, with an em dash for absent — and two functions
+ * called `num` that are inverses of each other is a trap for whoever reads the
+ * second one expecting the first.
+ */
+function toNumber(value) {
 	if (typeof value === "number" && Number.isFinite(value)) return value;
 	if (typeof value === "string" && value.trim() !== "") {
 		const parsed = Number(value);
@@ -128,9 +135,9 @@ export const SCHEMES = {
 			return {
 				isAvailable: body?.is_available === true,
 				currency: info?.currency,
-				total: num(info?.total_balance),
-				granted: num(info?.granted_balance),
-				toppedUp: num(info?.topped_up_balance)
+				total: toNumber(info?.total_balance),
+				granted: toNumber(info?.granted_balance),
+				toppedUp: toNumber(info?.topped_up_balance)
 			};
 		}
 	},
@@ -144,8 +151,8 @@ export const SCHEMES = {
 		unauthorizedHint: "openrouter-management-key",
 		async read({ origin, get }) {
 			const body = await get(new URL("/api/v1/credits", origin).href);
-			const granted = num(body?.data?.total_credits);
-			const used = num(body?.data?.total_usage);
+			const granted = toNumber(body?.data?.total_credits);
+			const used = toNumber(body?.data?.total_usage);
 			const total = granted !== undefined && used !== undefined ? granted - used : undefined;
 			return {
 				isAvailable: total === undefined ? undefined : total > 0,
@@ -162,13 +169,13 @@ export const SCHEMES = {
 		async read({ origin, get, vendor }) {
 			const body = await get(new URL("/v1/users/me/balance", origin).href);
 			const data = body?.data;
-			const total = num(data?.available_balance);
+			const total = toNumber(data?.available_balance);
 			return {
 				isAvailable: total === undefined ? undefined : total > 0,
 				currency: typeof data?.currency === "string" ? data.currency : vendor?.currency,
 				total,
-				granted: num(data?.voucher_balance),
-				toppedUp: num(data?.cash_balance)
+				granted: toNumber(data?.voucher_balance),
+				toppedUp: toNumber(data?.cash_balance)
 			};
 		}
 	},
@@ -178,8 +185,8 @@ export const SCHEMES = {
 		async read({ origin, get, vendor }) {
 			const body = await get(new URL("/api/paas/v4/balance", origin).href);
 			const data = body?.data;
-			const available = num(data?.available_balance);
-			const total = num(data?.total_balance) ?? available;
+			const available = toNumber(data?.available_balance);
+			const total = toNumber(data?.total_balance) ?? available;
 			return {
 				isAvailable: total === undefined ? undefined : total > 0,
 				currency: typeof data?.currency === "string" ? data.currency : vendor?.currency,
@@ -196,9 +203,9 @@ export const SCHEMES = {
 			// and a redirect drops the Authorization header on some clients.
 			const body = await get(new URL("/api/usage/token/", origin).href);
 			const data = body?.data ?? {};
-			const granted = num(data.total_granted);
-			const used = num(data.total_used);
-			const available = num(data.total_available);
+			const granted = toNumber(data.total_granted);
+			const used = toNumber(data.total_used);
+			const available = toNumber(data.total_available);
 
 			// Quota is an internal integer, and `quota_per_unit` is the site's own
 			// divisor for turning it into **USD** — which is what New API's own
@@ -208,7 +215,7 @@ export const SCHEMES = {
 			let scale;
 			try {
 				const status = (await get(new URL("/api/status", origin).href, { anonymous: true }))?.data ?? {};
-				const perUnit = num(status.quota_per_unit);
+				const perUnit = toNumber(status.quota_per_unit);
 				if (perUnit !== undefined && perUnit > 0) scale = 1 / perUnit;
 			} catch {
 				// A site that will not describe its own units still has a quota.
@@ -240,7 +247,7 @@ export const SCHEMES = {
 				// says which one this card is about.
 				keyName: typeof data.name === "string" && data.name !== "" ? data.name : undefined,
 				// 0 means "never" in New API's shape, not "expired at the epoch".
-				expiresAt: num(data.expires_at) || undefined
+				expiresAt: toNumber(data.expires_at) || undefined
 			};
 		}
 	},
@@ -253,8 +260,8 @@ export const SCHEMES = {
 			return {
 				isAvailable: body?.isValid !== false,
 				currency,
-				total: num(body?.balance),
-				remaining: num(body?.remaining),
+				total: toNumber(body?.balance),
+				remaining: toNumber(body?.remaining),
 				plan: body?.planName ?? undefined
 			};
 		}
