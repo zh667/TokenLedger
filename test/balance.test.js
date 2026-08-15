@@ -53,7 +53,7 @@ test("no credential is reported as such, without a request", async () => {
 	const result = await readDeepSeekBalance({
 		fetch: async () => void called++
 	});
-	assert.deepEqual(result, { supported: true, ok: false, reason: "no-credential" });
+	assert.deepEqual(result, { supported: true, fetched: false, reason: "no-credential" });
 	assert.equal(called, 0);
 });
 
@@ -149,4 +149,15 @@ test("a missing credentials service degrades to no-credential rather than throwi
 		{ fetch: async () => ({ ok: true, json: async () => ({}) }) }
 	);
 	assert.equal((await read()).reason, "no-credential");
+});
+
+test("the envelope's ok is not overwritten by the balance's own result", () => {
+	// createBalanceReader spreads readDeepSeekBalance over `{ ok: true }`. When
+	// the inner result also used `ok`, a served request that simply had no key
+	// came back as `ok: false` — which the client treats as a failed request, so
+	// the card rendered nothing instead of naming the missing key.
+	const inner = { supported: true, fetched: false, reason: "no-credential" };
+	const envelope = { ok: true, provider: "official", ...inner };
+	assert.equal(envelope.ok, true, "the route was served; only the balance was not read");
+	assert.equal(envelope.fetched, false);
 });

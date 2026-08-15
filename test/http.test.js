@@ -209,3 +209,40 @@ test("the balance route only exists when a reader was supplied", () => {
 	registerRoutes(ctx, { store: {}, sites: () => [], balance: async () => ({ ok: true }) });
 	assert.equal(registered.length, 2);
 });
+
+test("the web server is waited for, not sampled at mount", async () => {
+	// Third time this mistake shipped: ctx.get answers undefined for a service
+	// that mounts later, and webServer is one of them. The routes silently never
+	// registered, and the panel got a 404 from a plugin whose host half had
+	// demonstrably loaded — the SQLite store was open in the same log.
+	const registered = [];
+	let waitedFor;
+	const ctx = {
+		// A context whose `get` NEVER answers, exactly like mount-time reality.
+		get: () => undefined,
+		inject: (deps, run) => {
+			waitedFor = deps;
+			run({
+				webServer: { register: (spec) => void registered.push(spec) },
+				effect: (fn) => fn()
+			});
+		},
+		effect: (fn) => fn()
+	};
+	assert.equal(registerRoutes(ctx, { store: {}, sites: () => [] }), true);
+	assert.deepEqual(waitedFor, ["webServer"]);
+	assert.equal(registered.length, 1, "the routes must register once the service arrives");
+	assert.equal(registered[0].path, USAGE_PATH);
+});
+
+test("a Cordis without ctx.inject still registers immediately", async () => {
+	// Older harnesses, and the test doubles above. The fallback must not be a
+	// silent no-op.
+	const registered = [];
+	const ctx = {
+		get: () => ({ register: (spec) => void registered.push(spec) }),
+		effect: (fn) => fn()
+	};
+	assert.equal(registerRoutes(ctx, { store: {}, sites: () => [] }), true);
+	assert.equal(registered.length, 1);
+});

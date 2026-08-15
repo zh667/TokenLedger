@@ -137,8 +137,29 @@ export function usagePayload(deps, query) {
  * @returns whether the routes were registered.
  */
 export function registerRoutes(ctx, deps) {
-	const webServer = typeof ctx.get === "function" ? ctx.get("webServer") : undefined;
-	if (webServer === undefined || typeof webServer.register !== "function") return false;
+	// WAITED FOR, not sampled. `ctx.get` at mount time answers undefined for a
+	// service that mounts later, and on a real install `webServer` is one of
+	// them: the routes silently never registered and the panel got a 404 from a
+	// plugin whose host half had demonstrably loaded. This is the third time the
+	// same mistake has shipped — `settings` twice, now this — so the sampling
+	// form is not used for an optional service anywhere in this package.
+	if (typeof ctx.inject !== "function") {
+		const immediate = typeof ctx.get === "function" ? ctx.get("webServer") : undefined;
+		if (immediate === undefined || typeof immediate.register !== "function") return false;
+		return attachRoutes(ctx, immediate, deps);
+	}
+	ctx.inject(["webServer"], (scoped) => {
+		attachRoutes(scoped, scoped.webServer, deps);
+	});
+	return true;
+}
+
+/**
+ * Register the routes on a context that already has the web server.
+ *
+ * @returns true, so the caller can report that a surface exists.
+ */
+function attachRoutes(ctx, webServer, deps) {
 	const logger = deps.logger;
 
 	const send = (res, status, value) => {

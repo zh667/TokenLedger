@@ -64,14 +64,20 @@ export function parseBalance(body) {
 /**
  * Read the balance for the official account.
  *
+ * `fetched` rather than `ok` reports whether a balance came back, because the
+ * caller wraps this in an envelope whose own `ok` means "the request was
+ * served". Spreading one over the other made a served request that simply had
+ * no key look like a failed route, and the panel then rendered nothing where it
+ * should have said which key was missing.
+ *
  * @param options - `{ apiKey, origin?, fetch?, timeoutMs? }`.
- * @returns `{ supported: true, ... }` on success, or `{ supported, reason }`.
+ * @returns `{ supported, fetched, ... }`.
  */
 export async function readDeepSeekBalance(options = {}) {
 	const { apiKey, origin = DEEPSEEK_ORIGIN, timeoutMs = 15_000 } = options;
 	const doFetch = options.fetch ?? globalThis.fetch;
 	if (typeof apiKey !== "string" || apiKey === "") {
-		return { supported: true, ok: false, reason: "no-credential" };
+		return { supported: true, fetched: false, reason: "no-credential" };
 	}
 
 	const controller = new AbortController();
@@ -83,10 +89,10 @@ export async function readDeepSeekBalance(options = {}) {
 			headers: { authorization: `Bearer ${apiKey}`, accept: "application/json" },
 			signal: controller.signal
 		});
-		if (!response.ok) return { supported: true, ok: false, reason: `http-${response.status}` };
-		return { supported: true, ok: true, ...parseBalance(await response.json()) };
+		if (!response.ok) return { supported: true, fetched: false, reason: `http-${response.status}` };
+		return { supported: true, fetched: true, ...parseBalance(await response.json()) };
 	} catch (error) {
-		return { supported: true, ok: false, reason: error?.name === "AbortError" ? "timeout" : "unreachable" };
+		return { supported: true, fetched: false, reason: error?.name === "AbortError" ? "timeout" : "unreachable" };
 	} finally {
 		clearTimeout(timer);
 	}

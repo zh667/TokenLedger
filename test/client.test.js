@@ -368,7 +368,7 @@ test("a real balance renders its amount and currency", async () => {
 	const { exports, render } = await loadBundle();
 	const text = textOf(
 		render(exports.BalanceCard, {
-			state: { status: "ready", data: { ok: true, supported: true, isAvailable: true, currency: "CNY", total: "36.44" } },
+			state: { status: "ready", data: { ok: true, supported: true, fetched: true, isAvailable: true, currency: "CNY", total: "36.44" } },
 			translate: T
 		})
 	);
@@ -446,4 +446,17 @@ test("day keys come from local components, never from toISOString", async () => 
 		exports.localDayKey(midnight),
 		midnight.toISOString().slice(0, 10) === "2026-08-15" ? "" : midnight.toISOString().slice(0, 10)
 	);
+});
+
+test("a served balance request with no key names the missing key, rather than rendering nothing", async () => {
+	// The envelope's `ok` means the route answered; the balance's own `fetched`
+	// means a figure came back. Conflating them made this case invisible.
+	const { exports, render } = await loadBundle();
+	const text = textOf(
+		render(exports.BalanceCard, {
+			state: { status: "ready", data: { ok: true, supported: true, fetched: false, reason: "no-credential" } },
+			translate: T
+		})
+	);
+	assert.equal(text.trim(), "balance.noKey");
 });

@@ -632,7 +632,7 @@ window.__ModuleLoader__.load({
 			if (balance.supported === false) {
 				return jsx("p", { className: S.note, children: translate(`balance.${balance.reason === "no-official-route" ? "noRoute" : "unavailable"}`) });
 			}
-			if (balance.ok === false) {
+			if (balance.fetched !== true) {
 				return jsx("p", {
 					className: S.note,
 					children: translate(balance.reason === "no-credential" ? "balance.noKey" : "balance.failed")
