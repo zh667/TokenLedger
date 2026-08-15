@@ -892,7 +892,16 @@ window.__ModuleLoader__.load({
 										jsx("td", { children: fmt(m.requests) }),
 										jsx("td", { children: fmt(m.inputTokens) }),
 										jsxs("td", {
-											children: [fmt(m.cacheReadTokens), jsx("span", { className: S.hit, children: fmtHit(m.cacheHitRate) })]
+											children: [
+												fmt(m.cacheReadTokens),
+												jsx("span", { className: S.hit, children: fmtHit(m.cacheHitRate) }),
+												// Cache WRITES count toward the total but had no column, so
+												// the row did not add up to it — 520 tokens invisible on a
+												// real install. The relay's own log marks them the same way.
+												(m.cacheWriteTokens ?? 0) > 0
+													? jsx("span", { className: S.hit, children: ` ↑${fmt(m.cacheWriteTokens)}` })
+													: null
+											]
 										}),
 										jsx("td", { children: fmt(m.outputTokens) }),
 										jsx("td", { children: m.cost === null || m.cost === undefined ? "—" : fmtMoney(m.cost, m.currency) })
@@ -969,14 +978,20 @@ window.__ModuleLoader__.load({
 				});
 			}
 
-			// Money when the account reports it; the raw quota when a relay
-			// publishes no unit price, because that is still a true answer.
+			// A remaining balance when there is one; otherwise what this key has
+			// SPENT, labelled as such. An unlimited key has no remaining quota,
+			// and the number New API returns for it is the negated usage — shown
+			// as a balance it was a negative figure meaning nothing.
+			const spent = typeof balance.used === "number";
 			const amount =
 				typeof balance.total === "number"
 					? fmtMoney(balance.total, balance.currency)
-					: balance.quota?.available !== undefined
-						? translate("balance.quota", { n: fmt(balance.quota.available) })
-						: "—";
+					: spent
+						? fmtMoney(balance.used, balance.currency)
+						: balance.quota?.available !== undefined
+							? translate("balance.quota", { n: fmt(balance.quota.available) })
+							: "—";
+			const amountLabel = typeof balance.total === "number" ? undefined : spent ? translate("balance.spent") : undefined;
 
 			const notes = [];
 			if (balance.unlimited === true) notes.push(translate("balance.unlimited"));
@@ -999,7 +1014,15 @@ window.__ModuleLoader__.load({
 								className: S.balanceWho,
 								children: `${balance.displayName ?? ""}${balance.scheme === undefined ? "" : ` · ${SCHEME_LABELS[balance.scheme] ?? balance.scheme}`}`
 							}),
-							jsx("div", { className: S.balanceAmount, children: amount })
+							jsxs("div", {
+								className: S.balanceAmount,
+								children: [
+									amount,
+									amountLabel === undefined
+										? null
+										: jsx("span", { className: S.tipUnit, children: amountLabel })
+								]
+							})
 						]
 					}),
 					jsxs("div", {
@@ -1262,6 +1285,7 @@ window.__ModuleLoader__.load({
 			"balance.plan": "套餐 {plan}",
 			"balance.unlimited": "不限额度",
 			"balance.quota": "{n} 额度",
+			"balance.spent": "已用",
 			"balance.unknownSoftware": "认不出这个中转站跑的是什么程序，读不了余额。",
 			"balance.unknownAccount": "找不到这个账户。",
 			"balance.failed": "余额读取失败（{reason}）。",
@@ -1331,6 +1355,7 @@ window.__ModuleLoader__.load({
 			"balance.plan": "{plan} plan",
 			"balance.unlimited": "Unlimited",
 			"balance.quota": "{n} quota",
+			"balance.spent": "spent",
 			"balance.unknownSoftware": "This relay runs software we do not recognise, so its balance cannot be read.",
 			"balance.unknownAccount": "No such account.",
 			"balance.failed": "Could not read the balance ({reason}).",

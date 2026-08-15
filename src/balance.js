@@ -102,35 +102,41 @@ export const SCHEMES = {
 			const used = num(data.total_used);
 			const available = num(data.total_available);
 
-			// Quota is an internal integer, and the same figure means different
-			// money at different sites. `/api/status` carries the two site-owned
-			// numbers that convert it; without them the quota is reported as-is
-			// rather than guessed at.
-			let currency;
+			// Quota is an internal integer, and `quota_per_unit` is the site's own
+			// divisor for turning it into **USD** — which is what New API's own
+			// wallet page shows. `price` is a different number: the local-currency
+			// price of one unit at top-up time. Treating a present `price` as
+			// "this site bills in CNY" put a ¥ in front of a dollar figure.
 			let scale;
 			try {
 				const status = (await get(new URL("/api/status", origin).href, { anonymous: true }))?.data ?? {};
 				const perUnit = num(status.quota_per_unit);
-				const price = num(status.price);
-				if (perUnit !== undefined && perUnit > 0) {
-					scale = price === undefined ? 1 / perUnit : price / perUnit;
-					currency = price === undefined ? "USD" : "CNY";
-				}
+				if (perUnit !== undefined && perUnit > 0) scale = 1 / perUnit;
 			} catch {
 				// A site that will not describe its own units still has a quota.
 			}
 
-			const money = (quota) => (quota === undefined || scale === undefined ? undefined : quota * scale);
+			// Rounded like the billing adapter does: 752600/500000 is 1.5052, and
+			// binary floating point renders it 1.5051999999999999 on a card.
+			const money = (quota) =>
+				quota === undefined || scale === undefined ? undefined : Math.round(quota * scale * 1e6) / 1e6;
+			const unlimited = data.unlimited_quota === true;
 			return {
-				isAvailable: data.unlimited_quota === true || (available ?? 0) > 0,
-				unlimited: data.unlimited_quota === true,
-				currency,
-				total: money(available),
-				granted: money(granted),
+				isAvailable: unlimited || (available ?? 0) > 0,
+				unlimited,
+				currency: scale === undefined ? undefined : "USD",
+				// An unlimited key has no remaining quota to report, and New API
+				// does not leave the field empty — it decrements from zero, so
+				// `total_available` comes back as the negated usage. Shown as a
+				// balance that is a negative number meaning nothing. The account's
+				// actual wallet is behind user auth, which a token key does not
+				// have, so the honest answer is what this key has SPENT.
+				total: unlimited ? undefined : money(available),
+				granted: unlimited ? undefined : money(granted),
 				used: money(used),
 				// Kept beside the money so a site with no published units still
 				// shows something true.
-				quota: { granted, used, available },
+				quota: unlimited ? { used } : { granted, used, available },
 				expiresAt: num(data.expires_at) || undefined
 			};
 		}

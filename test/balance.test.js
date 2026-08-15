@@ -116,7 +116,7 @@ test("DeepSeek prefers CNY, and an unreported balance is absent rather than zero
 	assert.equal(empty.currency, undefined);
 });
 
-test("New API converts quota to money using the site's own two numbers", async () => {
+test("New API converts quota to money using the site's own divisor", async () => {
 	// Quota is an internal integer and the same figure means different money at
 	// different relays, so the conversion has to come from that site.
 	const calls = [];
@@ -137,11 +137,12 @@ test("New API converts quota to money using the site's own two numbers", async (
 			};
 		}
 	});
-	// 4,000,000 quota / 500,000 per unit * 2 CNY per unit = 16
-	assert.equal(result.total, 16);
-	assert.equal(result.granted, 20);
-	assert.equal(result.used, 4);
-	assert.equal(result.currency, "CNY");
+	// 4,000,000 quota / 500,000 per unit = 8 USD. `price` is the local cost of
+	// one unit at top-up, not the unit the quota is denominated in.
+	assert.equal(result.total, 8);
+	assert.equal(result.granted, 10);
+	assert.equal(result.used, 2);
+	assert.equal(result.currency, "USD");
 	// The raw quota survives beside the money, for a site that publishes no units.
 	assert.deepEqual(result.quota, { granted: 5_000_000, used: 1_000_000, available: 4_000_000 });
 
@@ -300,4 +301,51 @@ test("a host that cannot be asked is unsupported, not an error", async () => {
 test("an unknown account id is named as such rather than silently answered", async () => {
 	const read = createBalanceReader(ctxWith([piAi("a")], { providers: { a: { baseURL: "https://x.example" } } }));
 	assert.equal((await read("nope")).reason, "unknown-account");
+});
+
+test("an unlimited key reports what it spent, not a negative balance", async () => {
+	// New API decrements `total_available` from zero for an unlimited key, so it
+	// comes back as the negated usage. Shown as a balance that is a negative
+	// number meaning nothing — a real install displayed ¥-1.5052 next to a
+	// wallet holding $33.49. The wallet is behind user auth a token key does not
+	// have; what the key CAN answer is its own spend.
+	const result = await readBalance({
+		scheme: "newapi",
+		origin: "https://r.example",
+		apiKey: "k",
+		fetch: async (url) => {
+			if (url.includes("/api/status")) return { ok: true, json: async () => ({ data: { quota_per_unit: 500000 } }) };
+			return {
+				ok: true,
+				json: async () => ({
+					data: { total_granted: 0, total_used: 752_600, total_available: -752_600, unlimited_quota: true }
+				})
+			};
+		}
+	});
+	assert.equal(result.total, undefined, "there is no remaining balance to report");
+	assert.equal(result.granted, undefined);
+	assert.equal(result.used, 1.5052);
+	assert.equal(result.unlimited, true);
+	assert.equal(result.isAvailable, true, "unlimited is available however much it has spent");
+	assert.deepEqual(result.quota, { used: 752_600 });
+});
+
+test("quota converts to USD, because that is what quota_per_unit divides into", async () => {
+	// `price` is the local-currency cost of one unit at top-up, not the unit the
+	// quota is denominated in. Treating its presence as "this site bills in CNY"
+	// put a ¥ in front of a dollar figure that the site's own wallet shows as $.
+	const result = await readBalance({
+		scheme: "newapi",
+		origin: "https://r.example",
+		apiKey: "k",
+		fetch: async (url) => {
+			if (url.includes("/api/status")) {
+				return { ok: true, json: async () => ({ data: { quota_per_unit: 500000, price: 7.3 } }) };
+			}
+			return { ok: true, json: async () => ({ data: { total_available: 16_745_000, total_used: 0 } }) };
+		}
+	});
+	assert.equal(result.currency, "USD");
+	assert.equal(result.total, 33.49);
 });
