@@ -27,7 +27,7 @@
 
 import { applyUsageDelta, dayKey } from "./usage.js";
 import { RelaySiteRegistry, SITE_TYPES, createSiteResolver, domainOf } from "./relay-sites.js";
-import { discoverFromContext, mergeSites } from "./discovery.js";
+import { discoverFromContext, mergeSites, withKnownSoftware } from "./discovery.js";
 import { detectRelaySoftware } from "./adapters/detect.js";
 import { LedgerStore } from "./store.js";
 import { RateTable, priceRows } from "./pricing.js";
@@ -280,7 +280,7 @@ async function collectReconciliations(store, config, range, siteFilter, logger, 
  * @returns the text to show.
  */
 async function runSiteCommand(args, deps) {
-	const { config = {}, sites, saveRelays } = deps;
+	const { config = {}, sites, saveRelays, saveUnavailableBecause } = deps;
 	const [action, ...rest] = args;
 	const manual = config.relays ?? {};
 
@@ -305,7 +305,12 @@ async function runSiteCommand(args, deps) {
 	}
 
 	if (saveRelays === undefined) {
-		return "这个组合里没有 settings 服务，改不了配置。请直接编辑 cordis.patch.yml 里的 `relays`。";
+		// Two very different causes, and naming the wrong one sends the reader to
+		// the wrong file. A registration that failed says why; only a genuinely
+		// absent service gets blamed for being absent.
+		return saveUnavailableBecause === undefined
+			? "settings 服务还没就绪，配置存不了。稍等一下重试；如果一直这样，就直接编辑 cordis.patch.yml 里的 `relays`。"
+			: `settings 命名空间没注册上（${saveUnavailableBecause}），配置存不了。请直接编辑 cordis.patch.yml 里的 \`relays\`。`;
 	}
 
 	if (action === "add") {
@@ -344,10 +349,12 @@ async function runSiteCommand(args, deps) {
  * @returns the report text.
  */
 export async function runCommand(rawInput, deps) {
-	const { store, config = {}, sweep: doSweep, reindex, logger, sites, saveRelays } = deps;
+	const { store, config = {}, sweep: doSweep, reindex, logger, sites, saveRelays, saveUnavailableBecause } = deps;
 	const args = String(rawInput ?? "").trim().split(/\s+/).filter(Boolean);
 
-	if (args[0] === "site") return runSiteCommand(args.slice(1), { config, sites, saveRelays });
+	if (args[0] === "site") {
+		return runSiteCommand(args.slice(1), { config, sites, saveRelays, saveUnavailableBecause });
+	}
 
 	if (args[0] === "reindex") {
 		const stats = await reindex?.();
@@ -364,7 +371,15 @@ export async function runCommand(rawInput, deps) {
 	const site = rest.find((a) => !/^\d+$/.test(a));
 	const range = Number.isFinite(days) && days > 0 ? { from: dayKeyDaysAgo(days - 1) } : {};
 
-	const reconciliations = await collectReconciliations(store, config, range, site, logger, sites?.());
+	// Only reconcile when a billing reader actually exists, or when explicitly
+	// asked. Sites used to be hand-configured, so a site with no reader was a
+	// half-finished setup worth flagging. Now that they are discovered, that
+	// same warning fires on every relay of every install — a ⚠ on a feature
+	// nobody opted into, telling users something is wrong when nothing is.
+	const wantReconcile = reconcileOnly || Object.keys(config.billing ?? {}).length > 0;
+	const reconciliations = wantReconcile
+		? await collectReconciliations(store, config, range, site, logger, sites?.())
+		: [];
 	if (reconcileOnly) return renderReconciliation(reconciliations);
 
 	const byId = {};
@@ -416,7 +431,13 @@ export function apply(ctx, userConfig = {}) {
 	// one interval rather than a permanently stale answer.
 	let directory = { sites: [], providerBaseUrls: {}, resolveSite: undefined };
 	let directoryKnown = false;
-	const fingerprinted = new Set();
+	// Keyed by site id and OUTSIDE the directory, because the directory's site
+	// objects are rebuilt from scratch on every sweep. An earlier version wrote
+	// the detected type onto the site object itself, so the answer survived until
+	// the next rebuild and every site then read "未识别" forever — while the
+	// `fingerprinted` guard made sure it was never asked again.
+	const softwareOf = new Map();
+	const asked = new Set();
 
 	/** Distinct origins, order-independent — the only change that alters attribution. */
 	const originKey = (d) => [...new Set(Object.values(d.providerBaseUrls ?? {}))].sort().join(" ");
@@ -427,12 +448,24 @@ export function apply(ctx, userConfig = {}) {
 	 * unknown, which only affects which billing adapter could later be offered —
 	 * never attribution.
 	 */
+	// Injectable so `apply` can be exercised without reaching the network. Both
+	// bugs a real install found — a sampled service and a discarded fingerprint —
+	// were in this wiring, which had no test at all because it could not be run.
+	const detect = config.detect ?? detectRelaySoftware;
+
 	const fingerprint = (site) => {
-		if (site.type !== undefined || fingerprinted.has(site.id)) return;
-		fingerprinted.add(site.id);
-		void detectRelaySoftware(site.baseUrl)
+		if (site.type !== undefined || asked.has(site.id)) return;
+		asked.add(site.id);
+		void detect(site.baseUrl)
 			.then((result) => {
-				site.type = result.billingAvailable ? result.software : undefined;
+				if (result.billingAvailable) {
+					softwareOf.set(site.id, result.software);
+					// Patch the live directory too. Recording only into the map leaves
+					// the answer invisible until the next sweep rebuilds — up to a
+					// whole interval of a site reading "unidentified" after detection
+					// has already succeeded.
+					directory = { ...directory, sites: withKnownSoftware(directory.sites, softwareOf) };
+				}
 				logger?.info?.("tokenledger: %s looks like %s (confidence %s)", site.id, result.software, result.confidence);
 			})
 			.catch((error) => logger?.warn?.("tokenledger: could not fingerprint %s: %s", site.id, error?.message ?? error));
@@ -452,6 +485,7 @@ export function apply(ctx, userConfig = {}) {
 			discovered = { sites: [], providerBaseUrls: {}, skipped: 0, available: false };
 		}
 		const merged = mergeSites(discovered, normalizeRelayConfig(config));
+		merged.sites = withKnownSoftware(merged.sites, softwareOf);
 		const next = { ...merged, resolveSite: buildResolver(merged) };
 		const moved = directoryKnown && originKey(next) !== originKey(directory);
 
@@ -518,25 +552,57 @@ export function apply(ctx, userConfig = {}) {
 	// It is the one thing here that needs a dependency, so it is loaded
 	// dynamically and its absence costs exactly itself.
 	let settingsScope;
-	const settings = typeof ctx.get === "function" ? ctx.get("settings") : undefined;
-	if (settings !== undefined) {
-		void import("./settings-schema.js")
-			.then(({ registerNamespace }) =>
-				registerNamespace(settings, userConfig, (next) => {
-					// A resolved value replaces the entry config wholesale; the
-					// directory picks the change up on the next sweep.
-					Object.assign(config, next);
-				})
-			)
-			.then((registered) => {
-				settingsScope = registered?.scope;
-			})
-			.catch((error) => {
-				logger?.warn?.(
-					"tokenledger: settings namespace unavailable (%s); using entry config only, and `/tokenledger site` cannot save",
-					error?.message ?? error
-				);
+	let settingsFailure;
+
+	// `settings` is WAITED FOR, not sampled.
+	//
+	// An earlier version read `ctx.get('settings')` once inside `apply` and
+	// cached the answer. On a real install that answer was `undefined` — the
+	// service mounts after this plugin — while the same call from inside a sweep,
+	// which happens later, returned it fine. The result was a plugin that could
+	// discover relays through the settings service and simultaneously report that
+	// there was no settings service.
+	//
+	// `ctx.inject` runs a child fiber that waits for the service and is re-run
+	// whenever it changes, so the timing stops mattering. It is deliberately not
+	// in this plugin's own `inject`: that would make collecting usage wait for a
+	// service a composition need not have at all.
+	if (typeof ctx.inject === "function") {
+		ctx.inject(["settings"], (scoped) => {
+			let live = true;
+			scoped.on?.("dispose", () => {
+				live = false;
+				settingsScope = undefined;
 			});
+			void import("./settings-schema.js")
+				.then(({ registerNamespace }) =>
+					live
+						? registerNamespace(scoped.settings, userConfig, (next) => {
+								// A resolved value replaces the entry config wholesale;
+								// the directory picks the change up on the next sweep.
+								Object.assign(config, next);
+							})
+						: undefined
+				)
+				.then((registered) => {
+					if (!live || registered === undefined) return;
+					settingsScope = registered.scope;
+					settingsFailure = undefined;
+					logger?.info?.("tokenledger: settings namespace registered; configuration can be saved");
+				})
+				.catch((error) => {
+					// Distinguished from "no settings service" because the fixes are
+					// different, and a message that names the wrong one sends whoever
+					// reads it to the wrong place.
+					settingsFailure = error?.message ?? String(error);
+					logger?.warn?.(
+						"tokenledger: could not register the settings namespace (%s); using entry config only",
+						settingsFailure
+					);
+				});
+		});
+	} else {
+		settingsFailure = "这个 Cordis 没有 ctx.inject";
 	}
 
 	const api = {
@@ -610,7 +676,8 @@ export function apply(ctx, userConfig = {}) {
 					: async (relays) => {
 							await settingsScope.update({ relays });
 							refreshDirectory();
-						}
+						},
+			saveUnavailableBecause: settingsFailure
 		});
 
 	if (config.sweepOnStart) void runSweep();

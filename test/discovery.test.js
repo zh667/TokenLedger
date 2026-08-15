@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { discoverFromContext, discoverSites, mergeSites, readAtPath } from "../src/discovery.js";
+import { discoverFromContext, discoverSites, mergeSites, readAtPath, withKnownSoftware } from "../src/discovery.js";
 import { normalizeRelayConfig, runCommand } from "../src/plugin.js";
 import { LedgerStore } from "../src/store.js";
+import { applyUsageDelta } from "../src/usage.js";
 
 /** The directory shape `dsh-llm-pi-ai` actually answers, verified against its source. */
 const piAi = (route, declared) => ({
@@ -214,6 +215,101 @@ test("merging nothing with nothing is not an error", () => {
 	assert.deepEqual(mergeSites(), { sites: [], providerBaseUrls: {} });
 });
 
+test("a fingerprint result survives the directory being rebuilt", () => {
+	// Regression, visible on a real install as a site permanently reading
+	// 未识别: the detected type was written onto the site object, which every
+	// sweep rebuilds from scratch, while the ask-once guard made sure detection
+	// never ran again. The learned answers have to outlive the rebuild.
+	const known = new Map([["api.relay-one.example", "newapi"]]);
+	const rebuilt = [{ id: "api.relay-one.example", baseUrl: "https://api.relay-one.example" }];
+	assert.equal(withKnownSoftware(rebuilt, known)[0].type, "newapi");
+});
+
+test("a hand-written type outranks the fingerprint, and an unknown site stays unknown", () => {
+	const known = new Map([["a", "newapi"]]);
+	const out = withKnownSoftware([{ id: "a", type: "sub2api" }, { id: "b" }], known);
+	assert.equal(out[0].type, "sub2api", "the user overrode it on purpose");
+	assert.equal(out[1].type, undefined, "absent is not the same as guessed");
+});
+
+test("withKnownSoftware does not mutate what it is given", () => {
+	const original = [{ id: "a" }];
+	withKnownSoftware(original, new Map([["a", "newapi"]]));
+	assert.equal(original[0].type, undefined);
+});
+
+// --- reconciliation stays out of the way ------------------------------------
+
+const DAY = Date.parse("2026-08-15T10:00:00");
+let seq = 0;
+const relayTraffic = () => {
+	const store = LedgerStore.open(":memory:");
+	const state = store.loadState("s");
+	applyUsageDelta(
+		state,
+		[
+			{
+				type: "assistant/message",
+				seq: seq++,
+				time: DAY,
+				data: {
+					turn: 1,
+					step: 1,
+					message: { role: "assistant", source: { kind: "model", provider: "api99", model: "gpt" } },
+					usage: { inputTokens: 1000, outputTokens: 100 }
+				}
+			}
+		],
+		{ resolveSite: () => "api.relay-one.example" }
+	);
+	store.commitSession("s", state);
+	return store;
+};
+
+test("a discovered relay with no billing reader is not decorated with a warning", async () => {
+	// Sites used to be hand-written, so one without a reader meant a
+	// half-finished setup. Now that they are discovered, that same warning would
+	// fire on every relay of every install — a ⚠ about a feature nobody opted
+	// into, which reads as "something is broken" when nothing is.
+	const store = relayTraffic();
+	try {
+		const text = await runCommand("", { store, config: {}, sites: () => [{ id: "api.relay-one.example" }] });
+		assert.ok(text.includes("api.relay-one.example"), "the site itself is still reported");
+		assert.equal(text.includes("⚠"), false, `unasked-for warning: ${text}`);
+		assert.equal(text.includes("账单读取器"), false);
+	} finally {
+		store.close();
+	}
+});
+
+test("asking for reconcile explicitly still explains why it cannot", async () => {
+	const store = relayTraffic();
+	try {
+		const text = await runCommand("reconcile", {
+			store,
+			config: {},
+			sites: () => [{ id: "api.relay-one.example" }]
+		});
+		assert.ok(text.includes("账单读取器"), "the explanation belongs where it was asked for");
+	} finally {
+		store.close();
+	}
+});
+
+test("configuring a billing reader brings the comparison back into the report", async () => {
+	const store = relayTraffic();
+	try {
+		const text = await runCommand("", {
+			store,
+			config: { billing: { "api.relay-one.example": async () => null } },
+			sites: () => [{ id: "api.relay-one.example" }]
+		});
+		assert.ok(text.includes("⚠"), "opting in means you want to hear about it");
+	} finally {
+		store.close();
+	}
+});
+
 // --- the site subcommand ----------------------------------------------------
 
 const emptyStore = () => LedgerStore.open(":memory:");
@@ -324,12 +420,27 @@ test("`site rm` removes a manual entry and refuses to pretend it can remove a di
 	}
 });
 
-test("without a settings service the command says so instead of silently doing nothing", async () => {
+test("a not-yet-ready settings service is not reported as a missing one", async () => {
+	// Regression, found on a real Windows install: `settings` was sampled once
+	// inside apply() and cached as undefined because the service mounts later,
+	// so the plugin discovered relays THROUGH that service while telling the
+	// user it did not exist. The two states now read differently, and only a
+	// genuine registration failure names a file to go edit.
 	const store = emptyStore();
 	try {
-		const text = await runCommand("site add r https://relay.example", { store, config: {}, sites: () => [] });
-		assert.ok(text.includes("改不了配置"));
-		assert.ok(text.includes("cordis.patch.yml"), "and names the one path that still works");
+		const pending = await runCommand("site add r https://relay.example", { store, config: {}, sites: () => [] });
+		assert.ok(pending.includes("还没就绪"));
+		assert.ok(pending.includes("重试"), "waiting is the fix for a race, not editing a file");
+
+		const failed = await runCommand("site add r https://relay.example", {
+			store,
+			config: {},
+			sites: () => [],
+			saveUnavailableBecause: "Cannot find package '@deepseek-ai/schemastery'"
+		});
+		assert.ok(failed.includes("schemastery"), "a real failure must surface its reason");
+		assert.ok(failed.includes("cordis.patch.yml"), "and only then name the path that still works");
+		assert.equal(failed.includes("还没就绪"), false);
 	} finally {
 		store.close();
 	}

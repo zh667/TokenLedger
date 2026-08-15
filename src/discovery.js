@@ -190,6 +190,24 @@ export function discoverFromContext(ctx, options = {}) {
 }
 
 /**
+ * Fill in each site's software from what fingerprinting has already learned.
+ *
+ * Separate from the site objects on purpose. Those are rebuilt from scratch on
+ * every sweep, so anything written onto them is lost at the next rebuild — which
+ * is exactly how a detected type once survived for one interval and then read
+ * "unknown" forever, with the once-only guard ensuring it was never asked again.
+ * The learned answers therefore live in a map that outlives the rebuild, and are
+ * re-applied here.
+ *
+ * @param sites - freshly built site records.
+ * @param known - site id → software, from fingerprinting.
+ * @returns new records; a hand-written `type` is an override and is kept.
+ */
+export function withKnownSoftware(sites = [], known = new Map()) {
+	return sites.map((s) => (s.type === undefined ? { ...s, type: known.get(s.id) } : s));
+}
+
+/**
  * Merge discovered sites with hand-written ones.
  *
  * Manual configuration is an override, so it wins: a user who wrote a site down
