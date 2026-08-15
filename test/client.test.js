@@ -11,6 +11,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+/** The real console, captured once. Tests below swap the global. */
+const REAL_CONSOLE = globalThis.console;
+
 /** Enough of `document` for the one-time style injection. */
 function fakeDom() {
 	const children = [];
@@ -56,6 +59,17 @@ async function loadBundle(options = {}) {
 	};
 	globalThis.document = dom;
 
+	// The bundle logs its lifecycle deliberately (a silent browser half cost
+	// several rounds of guessing). Silence it here so 200 tests stay readable,
+	// while still asserting below that the calls happen.
+	const logged = [];
+	globalThis.console = {
+		info: (...a) => logged.push(["info", a.join(" ")]),
+		warn: (...a) => logged.push(["warn", a.join(" ")]),
+		error: (...a) => logged.push(["error", a.join(" ")]),
+		log: REAL_CONSOLE.log.bind(REAL_CONSOLE)
+	};
+
 	// A React stub that records hooks rather than running a renderer: the panel
 	// only needs useState/useEffect/useCallback to be callable for its module
 	// body and one render pass to be observable.
@@ -74,10 +88,15 @@ async function loadBundle(options = {}) {
 		useRef: (initial) => ({ current: initial })
 	};
 
-	await import(`../src/client.js?t=${Date.now()}`);
+	try {
+		await import(`../src/client.js?t=${Date.now()}`);
+	} finally {
+		globalThis.console = REAL_CONSOLE;
+	}
 
 	return {
 		exports: materialized,
+		logged,
 		dom,
 		registered,
 		effects,
@@ -459,4 +478,52 @@ test("a served balance request with no key names the missing key, rather than re
 		})
 	);
 	assert.equal(text.trim(), "balance.noKey");
+});
+
+test("the bundle announces each lifecycle step it reaches", async () => {
+	// A browser half that fails silently is indistinguishable from one that was
+	// never delivered, and telling those apart by reasoning cost several rounds.
+	// These lines are the difference between "the panel is missing" and "the
+	// bundle never executed" / "a require is absent" / "the seat was refused".
+	const { logged, exports } = await loadBundle();
+	const text = logged.map(([, m]) => m).join("\n");
+	assert.ok(text.includes("bundle script executing"), "stage zero: was the script even fetched");
+	assert.ok(text.includes("factory materializing"));
+	assert.ok(text.includes("factory ready"));
+
+	const seatLogs = [];
+	globalThis.console = { info: (...a) => seatLogs.push(a.join(" ")), warn() {}, error() {} };
+	try {
+		exports.apply({
+			effect: (fn) => fn(),
+			locale: { register() {} },
+			slots: { inject: (_n, run) => run(), register() {} }
+		});
+	} finally {
+		globalThis.console = REAL_CONSOLE;
+	}
+	assert.ok(seatLogs.join("\n").includes("registering the footer seat"));
+	assert.ok(seatLogs.join("\n").includes("sidebar.footer.action is available"));
+});
+
+test("a locale service that throws costs the dictionaries, not the seat", async () => {
+	// The seat is the point; translations are a nicety. Before this, one throw
+	// took both.
+	const { exports } = await loadBundle();
+	const registered = [];
+	globalThis.console = { info() {}, warn() {}, error() {} };
+	try {
+		exports.apply({
+			effect: (fn) => fn(),
+			locale: {
+				register() {
+					throw new Error("no locale service");
+				}
+			},
+			slots: { inject: (_n, run) => run(), register: (spec) => registered.push(spec) }
+		});
+	} finally {
+		globalThis.console = REAL_CONSOLE;
+	}
+	assert.equal(registered.length, 1, "the seat must still be taken");
 });

@@ -30,16 +30,36 @@
  * @module dsh-tokenledger/client
  */
 
+// Stage zero. If this line never prints, the bundle was never fetched or never
+// executed, and every later explanation is beside the point — the delivery is
+// what to look at, not the code. Logged unconditionally because the only
+// alternative when a panel does not appear is guessing, which has cost several
+// rounds already.
+console.info("[tokenledger] bundle script executing (client half present)");
+
 window.__ModuleLoader__.load({
 	id: "dsh-tokenledger",
 	factory: (require) => {
+		console.info("[tokenledger] factory materializing");
 		var module = { exports: {} };
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 
-		const react = require("react");
-		const { jsx, jsxs } = require("react/jsx-runtime");
-		const primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+		let react;
+		let jsx;
+		let jsxs;
+		let primitives;
+		try {
+			react = require("react");
+			({ jsx, jsxs } = require("react/jsx-runtime"));
+			primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+		} catch (error) {
+			// A require that throws inside a factory takes the whole bundle down
+			// with no other trace. Naming the specifier turns "the panel is missing"
+			// into "this dependency is not in the graph".
+			console.error("[tokenledger] a require failed; the panel cannot mount:", error);
+			throw error;
+		}
 
 		const NS = "tokenLedger";
 		const USAGE_PATH = "/api/tokenledger/usage";
@@ -940,13 +960,26 @@ window.__ModuleLoader__.load({
 		 * this hole, and this bundle must not assume it is already there.
 		 */
 		function apply(ctx) {
-			ctx.effect(() => ctx.locale.register(NS, { zh, en }), "tokenledger: dictionaries");
-			ctx.slots.inject("sidebar.footer.action", () =>
-				ctx.slots.register(
-					{ name: "sidebar.footer.action", id: "tokenledger", locale: NS, order: 20 },
-					TokenLedgerPanel
-				)
-			);
+			console.info("[tokenledger] apply() called; registering the footer seat");
+			try {
+				ctx.effect(() => ctx.locale.register(NS, { zh, en }), "tokenledger: dictionaries");
+			} catch (error) {
+				// Dictionaries are a nicety; the seat is the point. Losing one must
+				// not cost the other.
+				console.warn("[tokenledger] locale.register failed; falling back to built-in strings:", error);
+			}
+			try {
+				ctx.slots.inject("sidebar.footer.action", () => {
+					console.info("[tokenledger] sidebar.footer.action is available; registering");
+					return ctx.slots.register(
+						{ name: "sidebar.footer.action", id: "tokenledger", locale: NS, order: 20 },
+						TokenLedgerPanel
+					);
+				});
+			} catch (error) {
+				console.error("[tokenledger] could not take the footer seat:", error);
+				throw error;
+			}
 		}
 
 		exports.apply = apply;
@@ -972,6 +1005,7 @@ window.__ModuleLoader__.load({
 		exports.USAGE_PATH = USAGE_PATH;
 		exports.zh = zh;
 		exports.en = en;
+		console.info("[tokenledger] factory ready; exports:", Object.keys(module.exports).join(", "));
 		return module.exports;
 	}
 });

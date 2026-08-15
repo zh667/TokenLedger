@@ -246,3 +246,18 @@ test("a Cordis without ctx.inject still registers immediately", async () => {
 	assert.equal(registerRoutes(ctx, { store: {}, sites: () => [] }), true);
 	assert.equal(registered.length, 1);
 });
+
+test("every payload reports the installed version", async () => {
+	// Several rounds went into a missing panel that turned out to be a stale
+	// install. A copy that is behind looks exactly like one that is broken, and
+	// nothing on either side could tell them apart.
+	const store = seeded();
+	try {
+		const p = usagePayload({ store, sites: () => [] }, { range: {} });
+		assert.equal(typeof p.version, "string");
+		assert.notEqual(p.version, "unknown", "the manifest must be readable from the shipped layout");
+		assert.match(p.version, /^\d+\.\d+\.\d+/);
+	} finally {
+		store.close();
+	}
+});

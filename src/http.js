@@ -26,7 +26,24 @@
  * @module dsh-tokenledger/http
  */
 
+import { createRequire } from "node:module";
+
 import { dayKey } from "./usage.js";
+
+/**
+ * This package's version, read from its own manifest.
+ *
+ * Reported on every payload because an install being behind is invisible from
+ * both sides otherwise — the symptom of a stale copy is identical to the
+ * symptom of a broken one.
+ */
+export const VERSION = (() => {
+	try {
+		return createRequire(import.meta.url)("../package.json").version;
+	} catch {
+		return "unknown";
+	}
+})();
 
 /** Route prefix. Exact registrations, so each path is spelled out. */
 export const BASE_PATH = "/api/tokenledger";
@@ -104,6 +121,10 @@ export function usagePayload(deps, query) {
 	const { range, site } = query;
 	return {
 		ok: true,
+		// So "is my install current?" is answerable in one request. Several rounds
+		// were spent on a panel that was absent because the installed copy predated
+		// the fix, with no way to see that from either side.
+		version: VERSION,
 		generatedAt: Date.now(),
 		range,
 		site,
@@ -150,6 +171,7 @@ export function registerRoutes(ctx, deps) {
 	}
 	ctx.inject(["webServer"], (scoped) => {
 		attachRoutes(scoped, scoped.webServer, deps);
+		deps.logger?.info?.("tokenledger: serving %s and %s", USAGE_PATH, BALANCE_PATH);
 	});
 	return true;
 }
