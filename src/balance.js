@@ -55,6 +55,12 @@ export function isOfficialDeepSeek(baseUrl) {
 	}
 }
 
+/** Host for display, carrying a non-default port so two on one machine differ. */
+function hostLabel(origin) {
+	const url = new URL(origin);
+	return url.port === "" ? url.hostname : `${url.hostname}:${url.port}`;
+}
+
 /** Parse a number that an API may send as a string. */
 function num(value) {
 	if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -269,7 +275,9 @@ export function listAccounts(ctx, options = {}) {
 			if (seenOfficial.has(origin)) continue;
 			seenOfficial.add(origin);
 		}
-		const host = new URL(origin).hostname;
+		// Keyed by ORIGIN, not hostname: two relays on one machine differ only by
+		// port, and a hostname key had the second inherit the first's software.
+		const host = hostLabel(origin);
 		perHost.set(host, (perHost.get(host) ?? 0) + 1);
 
 		out.push({
@@ -280,7 +288,7 @@ export function listAccounts(ctx, options = {}) {
 			origin,
 			// Unknown until something asks — relay software is fingerprinted
 			// lazily, when a balance is actually requested for that site.
-			scheme: official ? "deepseek" : softwareOf.get(host),
+			scheme: official ? "deepseek" : softwareOf.get(origin),
 			hasCredential: typeof profile?.apiKeyEnv === "string" && profile.apiKeyEnv !== ""
 		});
 	}
@@ -320,7 +328,7 @@ export function createBalanceReader(ctx, options = {}) {
 				const result = await detect(account.origin);
 				if (result.billingAvailable) {
 					scheme = result.software;
-					options.learnSoftware?.(new URL(account.origin).hostname, scheme);
+					options.learnSoftware?.(account.origin, scheme);
 				}
 			} catch {
 				// Leave it unknown; the answer below says so.

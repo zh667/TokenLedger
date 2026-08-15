@@ -45,11 +45,20 @@ export function normalizeOrigin(baseUrl) {
 	return `${url.protocol}//${url.hostname.toLowerCase()}${port}`;
 }
 
-/** The bare domain of a base URL, for display in selectors and billing rows. */
+/**
+ * The domain of a base URL, for display in selectors and billing rows.
+ *
+ * The port comes along when there is one to carry — `normalizeOrigin` has
+ * already dropped the default, so `https://relay.example` stays readable while
+ * two self-hosted relays on one machine stay distinct. Dropping it made them a
+ * single site whose rows were the sum of both, and made the software cache
+ * answer for whichever was probed first.
+ */
 export function domainOf(baseUrl) {
 	const origin = normalizeOrigin(baseUrl);
 	if (origin === undefined) return undefined;
-	return new URL(origin).hostname;
+	const url = new URL(origin);
+	return url.port === "" ? url.hostname : `${url.hostname}:${url.port}`;
 }
 
 /**

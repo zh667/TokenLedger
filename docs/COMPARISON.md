@@ -29,7 +29,7 @@ clicking into that day. So:
 | Which relays am I using? | route names, inside each day | `/tokenledger site` |
 | How much went to one relay this month? | click every day, read the `route · model` rows, add them yourself | `/tokenledger 30 <site>` |
 | Two keys on one relay (one per model group) | two rows that never combine — but one invoice | one row, grouped by origin |
-| What is the site called? | `api99`, a name that appears nowhere on the bill | `api.9zyx.xyz` |
+| What is the site called? | `api99`, a name that appears nowhere on the bill | `api.relay-one.example` |
 
 Its own summary cards mix wallets: with a relay route selected, `本月` still
 showed the direct-to-vendor traffic too, because the selector drives the

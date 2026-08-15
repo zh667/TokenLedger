@@ -19,7 +19,7 @@ test("official is decided by origin, not by what the route is called", () => {
 	assert.equal(isOfficialDeepSeek("https://api.deepseek.com/v1"), true);
 	assert.equal(isOfficialDeepSeek("https://API.DeepSeek.com"), true);
 	assert.equal(isOfficialDeepSeek(undefined), true, "no baseURL means the shipped default");
-	assert.equal(isOfficialDeepSeek("https://api.9zyx.xyz/v1"), false);
+	assert.equal(isOfficialDeepSeek("https://api.relay-one.example/v1"), false);
 	assert.equal(isOfficialDeepSeek("https://api.deepseek.com.evil.example"), false, "suffix must not match");
 	assert.equal(isOfficialDeepSeek("not a url"), false);
 });
@@ -210,11 +210,11 @@ test("the account list carries no keys and makes no requests", () => {
 		ctxWith([piAi("official"), piAi("api99")], {
 			providers: {
 				official: { baseURL: "https://api.deepseek.com", apiKeyEnv: "DS_KEY" },
-				api99: { baseURL: "https://api.9zyx.xyz/v1", apiKeyEnv: "RELAY_KEY" }
+				api99: { baseURL: "https://api.relay-one.example/v1", apiKeyEnv: "RELAY_KEY" }
 			}
 		})
 	);
-	assert.deepEqual(accounts.map((a) => a.displayName), ["DeepSeek", "api.9zyx.xyz"]);
+	assert.deepEqual(accounts.map((a) => a.displayName), ["DeepSeek", "api.relay-one.example"]);
 	assert.deepEqual(accounts.map((a) => a.scheme), ["deepseek", undefined]);
 	assert.deepEqual(accounts.map((a) => a.hasCredential), [true, true]);
 	assert.equal(JSON.stringify(accounts).includes("DS_KEY"), false, "the reference is not the key, but it is still not needed here");
@@ -227,21 +227,21 @@ test("two keys on one relay are two quotas, and are listed as two", () => {
 	const accounts = listAccounts(
 		ctxWith([piAi("gpt"), piAi("claude")], {
 			providers: {
-				gpt: { baseURL: "https://api.9zyx.xyz/v1" },
-				claude: { baseURL: "https://api.9zyx.xyz/v2" }
+				gpt: { baseURL: "https://api.relay-one.example/v1" },
+				claude: { baseURL: "https://api.relay-one.example/v2" }
 			}
 		})
 	);
 	assert.equal(accounts.length, 2);
 	// And the picker must be able to tell them apart, which the bare host cannot.
-	assert.deepEqual(accounts.map((a) => a.displayName), ["api.9zyx.xyz · gpt", "api.9zyx.xyz · claude"]);
+	assert.deepEqual(accounts.map((a) => a.displayName), ["api.relay-one.example · gpt", "api.relay-one.example · claude"]);
 });
 
 test("a single key on a relay is labelled by host alone", () => {
 	const accounts = listAccounts(
-		ctxWith([piAi("api99")], { providers: { api99: { baseURL: "https://api.9zyx.xyz/v1" } } })
+		ctxWith([piAi("api99")], { providers: { api99: { baseURL: "https://api.relay-one.example/v1" } } })
 	);
-	assert.deepEqual(accounts.map((a) => a.displayName), ["api.9zyx.xyz"], "no route suffix when it adds nothing");
+	assert.deepEqual(accounts.map((a) => a.displayName), ["api.relay-one.example"], "no route suffix when it adds nothing");
 });
 
 test("DeepSeek is still collapsed, because there the account is the unit", () => {
@@ -267,7 +267,7 @@ test("a relay's software is fingerprinted when a balance is asked for, and only 
 	const read = createBalanceReader(
 		ctxWith(
 			[piAi("api99")],
-			{ providers: { api99: { baseURL: "https://api.9zyx.xyz/v1", apiKeyEnv: "K" } } },
+			{ providers: { api99: { baseURL: "https://api.relay-one.example/v1", apiKeyEnv: "K" } } },
 			{ resolve: async () => ({ value: "sk-live" }) }
 		),
 		{
@@ -286,7 +286,7 @@ test("a relay's software is fingerprinted when a balance is asked for, and only 
 
 	await read("api99");
 	assert.equal(probes, 1, "the answer is remembered");
-	assert.equal(learned.get("api.9zyx.xyz"), "newapi");
+	assert.equal(learned.get("https://api.relay-one.example"), "newapi", "keyed by origin, so a second relay on the same host does not inherit it");
 });
 
 test("a relay running nothing recognisable says so instead of failing", async () => {
@@ -399,4 +399,25 @@ test("expires_at of 0 means never, not the epoch", async () => {
 		fetch: async () => ({ ok: true, json: async () => ({ data: { total_available: 1, expires_at: 0 } }) })
 	});
 	assert.equal(result.expiresAt, undefined);
+});
+
+test("two relays on one machine are two sites, not one with two ports", async () => {
+	// Found by pointing two stub relays at 127.0.0.1 on different ports: the
+	// second inherited the first's detected software and then 404'd, because
+	// both the site id and the software cache were keyed by hostname alone.
+	const accounts = listAccounts(
+		ctxWith([piAi("a"), piAi("b")], {
+			providers: {
+				a: { baseURL: "http://127.0.0.1:7801/v1" },
+				b: { baseURL: "http://127.0.0.1:7802/v1" }
+			}
+		}),
+		{ softwareOf: new Map([["http://127.0.0.1:7801", "newapi"]]) }
+	);
+	assert.equal(accounts.length, 2);
+	assert.deepEqual(accounts.map((a) => a.origin), ["http://127.0.0.1:7801", "http://127.0.0.1:7802"]);
+	assert.deepEqual(accounts.map((a) => a.scheme), ["newapi", undefined], "the second must not inherit the first's software");
+	// The port already tells them apart, so no route suffix is needed — the
+	// suffix is only for two keys reaching the SAME origin.
+	assert.deepEqual(accounts.map((a) => a.displayName), ["127.0.0.1:7801", "127.0.0.1:7802"]);
 });

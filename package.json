@@ -31,7 +31,8 @@
     "cordis.patch.yml",
     "LICENSE",
     "NOTICE",
-    "README.md"
+    "README.md",
+    "docs/images"
   ],
   "engines": {
     "node": ">=22"

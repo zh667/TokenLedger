@@ -648,3 +648,24 @@ test("a real site idle during the range still gets the empty-range message", asy
 		store.close();
 	}
 });
+
+test("a non-default port is part of the site's identity", async () => {
+	// Two self-hosted relays on one machine differ only by port. Dropping it
+	// made them a single site whose rows were the sum of both — found by running
+	// two stub relays on 127.0.0.1.
+	const { sites } = discoverSites({
+		providers: [piAi("a", true), piAi("b", true)],
+		readSection: () =>
+			section({ a: { baseURL: "http://127.0.0.1:7801/v1" }, b: { baseURL: "http://127.0.0.1:7802/v1" } })
+	});
+	assert.equal(sites.length, 2);
+	assert.deepEqual(sites.map((s) => s.id).sort(), ["127.0.0.1:7801", "127.0.0.1:7802"]);
+});
+
+test("a default port is still dropped, so ordinary sites stay readable", async () => {
+	const { sites } = discoverSites({
+		providers: [piAi("a", true)],
+		readSection: () => section({ a: { baseURL: "https://relay.example:443/v1" } })
+	});
+	assert.deepEqual(sites.map((s) => s.id), ["relay.example"]);
+});

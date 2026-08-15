@@ -302,9 +302,9 @@ const payload = (over = {}) => ({
 	],
 	sites: [
 		{ site: "direct", tokens: 47085 },
-		{ site: "api.9zyx.xyz", tokens: 30781 }
+		{ site: "api.relay-one.example", tokens: 30781 }
 	],
-	directory: [{ id: "api.9zyx.xyz", routes: ["api99"], discovered: true }],
+	directory: [{ id: "api.relay-one.example", routes: ["api99"], discovered: true }],
 	diagnostics: { lastUpdatedAt: Date.parse("2026-08-15T13:32:00"), unattributedRows: 0 },
 	...over
 });
@@ -355,7 +355,7 @@ test("the site breakdown lists every site even while one is selected", async () 
 	// It is how you CHANGE the selection; hiding the others strands you on
 	// whatever you last clicked.
 	const { exports, render } = await loadBundle();
-	const tree = render(exports.SiteRows, { data: payload(), site: "api.9zyx.xyz", onSelect() {}, translate: T });
+	const tree = render(exports.SiteRows, { data: payload(), site: "api.relay-one.example", onSelect() {}, translate: T });
 	const rows = findAll(tree, "tkl_row");
 	assert.equal(rows.length, 2);
 	assert.equal(rows.filter((r) => "data-on" in r.props).length, 1, "exactly one row reads as selected");
@@ -366,7 +366,7 @@ test("clicking the selected site clears the filter rather than reselecting it", 
 	const picked = [];
 	const tree = render(exports.SiteRows, {
 		data: payload(),
-		site: "api.9zyx.xyz",
+		site: "api.relay-one.example",
 		onSelect: (id) => picked.push(id),
 		translate: T
 	});
@@ -380,7 +380,7 @@ test("direct is labelled, not shown as the raw key", async () => {
 	const { exports, render } = await loadBundle();
 	const text = textOf(render(exports.SiteRows, { data: payload(), onSelect() {}, translate: T }));
 	assert.ok(text.includes("sites.direct"));
-	assert.ok(text.includes("api.9zyx.xyz"));
+	assert.ok(text.includes("api.relay-one.example"));
 });
 
 test("the activity strip keeps its shape whatever range is selected", async () => {
@@ -529,7 +529,7 @@ test("a relay balance renders through the same card as the vendor's", async () =
 				status: "ready",
 				data: {
 					ok: true,
-					displayName: "api.9zyx.xyz",
+					displayName: "api.relay-one.example",
 					scheme: "newapi",
 					supported: true,
 					fetched: true,
@@ -541,7 +541,7 @@ test("a relay balance renders through the same card as the vendor's", async () =
 			translate: T
 		})
 	);
-	assert.ok(newapi.includes("api.9zyx.xyz"));
+	assert.ok(newapi.includes("api.relay-one.example"));
 	assert.ok(newapi.includes("New API"), "the software is named, not just the host");
 	assert.ok(newapi.includes("¥16.00"));
 
@@ -568,12 +568,12 @@ test("the picker only appears when there is a choice to make", async () => {
 		"one account is not a choice"
 	);
 	const two = render(exports.AccountPicker, {
-		accounts: [{ id: "a", displayName: "DeepSeek" }, { id: "b", displayName: "api.9zyx.xyz" }],
+		accounts: [{ id: "a", displayName: "DeepSeek" }, { id: "b", displayName: "api.relay-one.example" }],
 		value: "b",
 		onChange() {},
 		translate: T
 	});
-	assert.ok(textOf(two).includes("api.9zyx.xyz"));
+	assert.ok(textOf(two).includes("api.relay-one.example"));
 });
 
 test("a balance that could not be read never becomes an error banner", async () => {

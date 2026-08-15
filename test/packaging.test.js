@@ -64,3 +64,24 @@ test("every file the manifest points at is shipped", () => {
 	}
 	assert.ok(shipped.includes(pkg.dsh.bundle.patch.replace(/^\.\//, "")), "the bundle patch must ship");
 });
+
+test("every local image the README shows is shipped", () => {
+	// README.md is in `files`, so npm renders it on the package page — but it
+	// renders with the tarball's own contents. An image the repository has and
+	// the tarball doesn't is a broken box on the listing, visible to everyone
+	// except us.
+	const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+	const refs = [...readme.matchAll(/!\[[^\]]*\]\(([^)\s]+)/g)]
+		.map((m) => m[1])
+		.filter((src) => !/^(https?:)?\/\//.test(src));
+
+	assert.ok(refs.length > 0, "the hero screenshot is the README's centrepiece");
+	for (const src of refs) {
+		assert.doesNotThrow(
+			() => readFileSync(new URL(`../${src}`, import.meta.url)),
+			`${src} is referenced but absent from the repository`
+		);
+		const covered = pkg.files.some((entry) => src === entry || src.startsWith(`${entry}/`));
+		assert.ok(covered, `${src} is not under any entry in files`);
+	}
+});
