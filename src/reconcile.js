@@ -71,7 +71,11 @@ export function relayLevel(fact) {
 	return "summary";
 }
 
-function money(amount, currency) {
+/**
+ * Build a money value object. Not `report.js`'s `money`, which formats one
+ * into a display string — this is the constructor, that is the presenter.
+ */
+function makeMoney(amount, currency) {
 	if (amount === null || amount === undefined) return null;
 	return { amount: Number(amount), currency: currency ?? undefined };
 }
@@ -134,7 +138,7 @@ export function reconcileSite(input) {
 			comparable: false,
 			reason: INCOMPARABLE.WINDOW_MISMATCH,
 			relayBalance: relay.balance
-				? money(relay.balance.remaining ?? relay.balance.amount, relay.balance.currency)
+				? makeMoney(relay.balance.remaining ?? relay.balance.amount, relay.balance.currency)
 				: null
 		};
 	}
@@ -184,9 +188,9 @@ export function reconcileSite(input) {
 	// Cost. Five separate facts, never merged: our estimate, the relay's list
 	// price, what the relay actually deducted, its internal quota unit, and the
 	// wallet balance.
-	const estimate = dshEstimate?.cost === null || dshEstimate === null ? null : money(dshEstimate.cost, dshEstimate.currency);
-	const listCost = money(relayTotals.listCost ?? relayTotals.reportedCost ?? null, relay.currency);
-	const actualCost = money(relayTotals.actualCost ?? null, relay.currency);
+	const estimate = dshEstimate?.cost === null || dshEstimate === null ? null : makeMoney(dshEstimate.cost, dshEstimate.currency);
+	const listCost = makeMoney(relayTotals.listCost ?? relayTotals.reportedCost ?? null, relay.currency);
+	const actualCost = makeMoney(relayTotals.actualCost ?? null, relay.currency);
 	const chargeToCompare = actualCost ?? listCost;
 
 	const costDelta = subtractMoney(chargeToCompare, estimate);
@@ -218,7 +222,7 @@ export function reconcileSite(input) {
 			deltaPercent: pct(costDelta.amount, estimate?.amount ?? null)
 		},
 		relayBalance: relay.balance
-			? money(relay.balance.remaining ?? relay.balance.amount, relay.balance.currency)
+			? makeMoney(relay.balance.remaining ?? relay.balance.amount, relay.balance.currency)
 			: null,
 		verification:
 			relay.verification ?? (relay.capabilities?.recomputable ? { available: true } : { available: false })
