@@ -150,7 +150,33 @@ npm pack --dry-run
 - 热力图的分位数分级与悬停详情参考 [`xiufengsun/TokenTracker`](https://github.com/xiufengsun/TokenTracker)（MIT）
 - New API 的计费口径读自 [`QuantumNous/new-api`](https://github.com/QuantumNous/new-api) 源码
 
-> ⚠️ **非官方声明**：TokenLedger 是独立的第三方社区项目，与 DeepSeek 无隶属、赞助或背书关系。「DeepSeek」及相关商标归其权利人所有。
+## 友情链接 / Links
+
+感谢 [LINUX DO](https://linux.do/) 社区的帮助与支持。
+
+*Thanks to the [LINUX DO](https://linux.do/) community for their help and support.*
+
+<details>
+<summary>DSH 生态 / The DSH ecosystem</summary>
+
+**宿主 / The host**
+
+- [`deepseek-ai/deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness) —— 本插件运行其上的 agent harness
+
+**插件索引 / Where to find plugins** —— 这几处收录了社区插件，装之前值得先逛一圈
+
+- [`awesome-dsh-plugin/awesome-dsh-plugin`](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) —— 按功能分类的中英双语列表
+- [`AdamPlatin123/awesome-dsh-plugins`](https://github.com/AdamPlatin123/awesome-dsh-plugins) —— 自动扫描 `dsh-plugin` topic，带兼容性状态列
+- [`0xsline/awesome-deepseek-harness`](https://github.com/0xsline/awesome-deepseek-harness) —— 人工精选，另有自动生成的 `CATALOG.md`
+- [`bruc3van/awesome-dsh-plugin`](https://github.com/bruc3van/awesome-dsh-plugin) —— 场景导航、入门套装与热度榜
+
+**这个面板读得懂的上游 / Upstreams this panel reads**
+
+- [`QuantumNous/new-api`](https://github.com/QuantumNous/new-api) —— 中转站程序；面板的额度换算口径是从它的路由与计费源码里读出来的
+
+</details>
+
+> ⚠️ **非官方声明**：TokenLedger 是独立的第三方社区项目，与 DeepSeek 无隶属、赞助或背书关系。以上友链亦不代表任何隶属、赞助或背书关系。「DeepSeek」及相关商标归其权利人所有。
 
 ## License
 
