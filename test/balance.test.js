@@ -220,13 +220,38 @@ test("the account list carries no keys and makes no requests", () => {
 	assert.equal(JSON.stringify(accounts).includes("DS_KEY"), false, "the reference is not the key, but it is still not needed here");
 });
 
-test("two keys on one relay are one account, not two balances", () => {
-	// They share a wallet; listing it twice invites reading it as two.
+test("two keys on one relay are two quotas, and are listed as two", () => {
+	// A relay's quota is scoped to the KEY: New API's /api/usage/token/ and
+	// Sub2API's /v1/usage both answer for whichever key asked. Collapsing them
+	// by host showed one key's spend under the site's name and hid the other.
 	const accounts = listAccounts(
 		ctxWith([piAi("gpt"), piAi("claude")], {
 			providers: {
 				gpt: { baseURL: "https://api.9zyx.xyz/v1" },
 				claude: { baseURL: "https://api.9zyx.xyz/v2" }
+			}
+		})
+	);
+	assert.equal(accounts.length, 2);
+	// And the picker must be able to tell them apart, which the bare host cannot.
+	assert.deepEqual(accounts.map((a) => a.displayName), ["api.9zyx.xyz · gpt", "api.9zyx.xyz · claude"]);
+});
+
+test("a single key on a relay is labelled by host alone", () => {
+	const accounts = listAccounts(
+		ctxWith([piAi("api99")], { providers: { api99: { baseURL: "https://api.9zyx.xyz/v1" } } })
+	);
+	assert.deepEqual(accounts.map((a) => a.displayName), ["api.9zyx.xyz"], "no route suffix when it adds nothing");
+});
+
+test("DeepSeek is still collapsed, because there the account is the unit", () => {
+	// Its balance is an account fact, not a key fact — every key spends the same
+	// wallet, so two routes to it are one card.
+	const accounts = listAccounts(
+		ctxWith([piAi("ds1"), piAi("ds2")], {
+			providers: {
+				ds1: { baseURL: "https://api.deepseek.com" },
+				ds2: { baseURL: "https://api.deepseek.com" }
 			}
 		})
 	);
@@ -348,4 +373,30 @@ test("quota converts to USD, because that is what quota_per_unit divides into", 
 	});
 	assert.equal(result.currency, "USD");
 	assert.equal(result.total, 33.49);
+});
+
+test("the key's own name and expiry ride along, when New API gives them", async () => {
+	// With several keys on one relay the name is the only thing that says which
+	// one a card is about; it is what the site's console shows beside each row.
+	const result = await readBalance({
+		scheme: "newapi",
+		origin: "https://r.example",
+		apiKey: "k",
+		fetch: async (url) => {
+			if (url.includes("/api/status")) return { ok: true, json: async () => ({ data: { quota_per_unit: 500000 } }) };
+			return { ok: true, json: async () => ({ data: { name: "claude1", total_available: 500000, expires_at: 1800000000 } }) };
+		}
+	});
+	assert.equal(result.keyName, "claude1");
+	assert.equal(result.expiresAt, 1800000000);
+});
+
+test("expires_at of 0 means never, not the epoch", async () => {
+	const result = await readBalance({
+		scheme: "newapi",
+		origin: "https://r.example",
+		apiKey: "k",
+		fetch: async () => ({ ok: true, json: async () => ({ data: { total_available: 1, expires_at: 0 } }) })
+	});
+	assert.equal(result.expiresAt, undefined);
 });

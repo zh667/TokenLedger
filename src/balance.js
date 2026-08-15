@@ -137,6 +137,11 @@ export const SCHEMES = {
 				// Kept beside the money so a site with no published units still
 				// shows something true.
 				quota: unlimited ? { used } : { granted, used, available },
+				// The key's own name, which the site's console shows beside every
+				// row. With several keys on one relay it is the only thing that
+				// says which one this card is about.
+				keyName: typeof data.name === "string" && data.name !== "" ? data.name : undefined,
+				// 0 means "never" in New API's shape, not "expired at the epoch".
 				expiresAt: num(data.expires_at) || undefined
 			};
 		}
@@ -236,7 +241,18 @@ export function listAccounts(ctx, options = {}) {
 		return [];
 	}
 
-	const seen = new Set();
+	// One entry per ROUTE, not per origin.
+	//
+	// An earlier version collapsed routes sharing a host, on the reasoning that
+	// two keys on one relay share a wallet. That holds for DeepSeek, whose
+	// balance is an account fact, and not for the relays: New API's
+	// `/api/usage/token/` and Sub2API's `/v1/usage` are both scoped to the key
+	// that asked. Merging them showed one key's spend under the site's name and
+	// silently hid the other.
+	//
+	// DeepSeek is still collapsed, because there the account really is the unit.
+	const seenOfficial = new Set();
+	const perHost = new Map();
 	const out = [];
 	for (const entry of entries) {
 		let profile;
@@ -249,20 +265,31 @@ export function listAccounts(ctx, options = {}) {
 		const official = isOfficialDeepSeek(baseUrl);
 		const origin = official ? (normalizeOrigin(baseUrl) ?? DEEPSEEK_ORIGIN) : normalizeOrigin(baseUrl);
 		if (origin === undefined) continue;
-		// One card per account, not per route: two keys on one relay share a
-		// balance, and listing it twice invites reading it as two.
-		if (seen.has(origin)) continue;
-		seen.add(origin);
+		if (official) {
+			if (seenOfficial.has(origin)) continue;
+			seenOfficial.add(origin);
+		}
+		const host = new URL(origin).hostname;
+		perHost.set(host, (perHost.get(host) ?? 0) + 1);
 
 		out.push({
 			id: entry.provider,
-			displayName: official ? "DeepSeek" : (new URL(origin).hostname),
+			route: entry.provider,
+			host,
+			displayName: official ? "DeepSeek" : host,
 			origin,
 			// Unknown until something asks — relay software is fingerprinted
 			// lazily, when a balance is actually requested for that site.
-			scheme: official ? "deepseek" : softwareOf.get(new URL(origin).hostname),
+			scheme: official ? "deepseek" : softwareOf.get(host),
 			hasCredential: typeof profile?.apiKeyEnv === "string" && profile.apiKeyEnv !== ""
 		});
+	}
+
+	// Name the route only where the host alone would be ambiguous. Two keys on
+	// one relay are two quotas, and a picker offering the same label twice
+	// cannot be used to choose between them.
+	for (const account of out) {
+		if ((perHost.get(account.host) ?? 0) > 1) account.displayName = `${account.host} · ${account.route}`;
 	}
 	return out;
 }

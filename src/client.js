@@ -995,6 +995,9 @@ window.__ModuleLoader__.load({
 
 			const notes = [];
 			if (balance.unlimited === true) notes.push(translate("balance.unlimited"));
+			if (typeof balance.expiresAt === "number") {
+				notes.push(translate("balance.expires", { at: new Date(balance.expiresAt * 1000).toLocaleDateString() }));
+			}
 			if (typeof balance.granted === "number" && balance.granted > 0) {
 				notes.push(translate("balance.granted", { amount: fmtMoney(balance.granted, balance.currency) }));
 			}
@@ -1012,7 +1015,9 @@ window.__ModuleLoader__.load({
 							// answers nothing on a panel that also reports relays.
 							jsx("div", {
 								className: S.balanceWho,
-								children: `${balance.displayName ?? ""}${balance.scheme === undefined ? "" : ` · ${SCHEME_LABELS[balance.scheme] ?? balance.scheme}`}`
+								children: [balance.displayName, SCHEME_LABELS[balance.scheme] ?? balance.scheme, balance.keyName]
+									.filter(Boolean)
+									.join(" · ")
 							}),
 							jsxs("div", {
 								className: S.balanceAmount,
@@ -1286,6 +1291,7 @@ window.__ModuleLoader__.load({
 			"balance.unlimited": "不限额度",
 			"balance.quota": "{n} 额度",
 			"balance.spent": "已用",
+			"balance.expires": "{at} 到期",
 			"balance.unknownSoftware": "认不出这个中转站跑的是什么程序，读不了余额。",
 			"balance.unknownAccount": "找不到这个账户。",
 			"balance.failed": "余额读取失败（{reason}）。",
@@ -1356,6 +1362,7 @@ window.__ModuleLoader__.load({
 			"balance.unlimited": "Unlimited",
 			"balance.quota": "{n} quota",
 			"balance.spent": "spent",
+			"balance.expires": "expires {at}",
 			"balance.unknownSoftware": "This relay runs software we do not recognise, so its balance cannot be read.",
 			"balance.unknownAccount": "No such account.",
 			"balance.failed": "Could not read the balance ({reason}).",
