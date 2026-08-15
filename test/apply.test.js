@@ -153,14 +153,27 @@ test("a settings service that mounts after this plugin is still used", async () 
 		}
 	});
 
+	let api;
+	ctx.reflect.provide = (_name, value) => void (api = value);
+
 	apply(ctx, { database: ":memory:", sweepIntervalMs: 0, detect: async () => ({ billingAvailable: false }) });
 	assert.deepEqual(registered, [], "nothing to register against yet");
+	await settle();
+	assert.deepEqual(api.sites(), [], "the startup sweep genuinely cannot see relays yet");
 
 	tick(); // the settings service mounts, after this plugin already did
 	// Let the waiting fiber notice it and the dynamic import resolve.
 	for (let i = 0; i < 8; i++) await settle();
 
 	assert.deepEqual(registered, ["tokenledger"], "the namespace was never registered");
+	// Discovery reads provider profiles through that same service, so arriving
+	// late must re-run it. Leaving it to the next timer tick showed a real
+	// install "no relays" while its own report listed one.
+	assert.deepEqual(
+		api.sites().map((s) => s.id),
+		["api.relay-one.example"],
+		"the directory was left empty until the next sweep"
+	);
 });
 
 test("a store that cannot be opened does not stop DSH from booting", () => {

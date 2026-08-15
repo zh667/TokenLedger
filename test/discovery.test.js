@@ -326,6 +326,31 @@ test("`site` with nothing discovered explains that direct is a normal answer", a
 	}
 });
 
+test("`site list` re-asks the host rather than trusting the last sweep's answer", async () => {
+	// Regression: the listing read whatever the background sweep last produced.
+	// The sweep at startup can run before the settings service that discovery
+	// reads through, so the command reported "no relays" on an install whose
+	// own report — drawn from the rollups — was listing one.
+	const store = emptyStore();
+	let refreshed = 0;
+	let found = [];
+	try {
+		const text = await runCommand("site", {
+			store,
+			config: {},
+			refresh: () => {
+				refreshed++;
+				found = [{ id: "api.relay-one.example", routes: ["api99"], discovered: true }];
+			},
+			sites: () => found
+		});
+		assert.equal(refreshed, 1);
+		assert.ok(text.includes("api.relay-one.example"), "listed a stale, empty directory");
+	} finally {
+		store.close();
+	}
+});
+
 test("`site list` distinguishes discovered from hand-written, and says what is unidentified", async () => {
 	const store = emptyStore();
 	try {

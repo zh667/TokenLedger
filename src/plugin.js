@@ -280,11 +280,17 @@ async function collectReconciliations(store, config, range, siteFilter, logger, 
  * @returns the text to show.
  */
 async function runSiteCommand(args, deps) {
-	const { config = {}, sites, saveRelays, saveUnavailableBecause } = deps;
+	const { config = {}, sites, saveRelays, saveUnavailableBecause, refresh } = deps;
 	const [action, ...rest] = args;
 	const manual = config.relays ?? {};
 
 	if (action === undefined || action === "list") {
+		// Ask the host now rather than reporting whatever the last background
+		// sweep happened to leave. The sweep that runs at startup can precede the
+		// settings service by which relays are discovered, so a listing taken from
+		// its result says "no relays" for up to a whole interval — on an install
+		// whose own report, drawn from the rollups, is showing those relays.
+		refresh?.();
 		const known = sites?.() ?? [];
 		if (known.length === 0) {
 			return [
@@ -353,7 +359,13 @@ export async function runCommand(rawInput, deps) {
 	const args = String(rawInput ?? "").trim().split(/\s+/).filter(Boolean);
 
 	if (args[0] === "site") {
-		return runSiteCommand(args.slice(1), { config, sites, saveRelays, saveUnavailableBecause });
+		return runSiteCommand(args.slice(1), {
+			config,
+			sites,
+			saveRelays,
+			saveUnavailableBecause,
+			refresh: deps.refresh
+		});
 	}
 
 	if (args[0] === "reindex") {
@@ -588,6 +600,11 @@ export function apply(ctx, userConfig = {}) {
 					if (!live || registered === undefined) return;
 					settingsScope = registered.scope;
 					settingsFailure = undefined;
+					// Relay discovery reads provider profiles THROUGH this service, so
+					// the sweep that ran at startup — before the service existed — found
+					// nothing. Re-discover now instead of leaving the directory empty
+					// until the next timer tick.
+					refreshDirectory();
 					logger?.info?.("tokenledger: settings namespace registered; configuration can be saved");
 				})
 				.catch((error) => {
@@ -668,6 +685,7 @@ export function apply(ctx, userConfig = {}) {
 			reindex: api.reindex,
 			logger,
 			sites: () => directory.sites,
+			refresh: () => void refreshDirectory(),
 			// Present only once the namespace registered; `runCommand` says so
 			// rather than failing, because the report half still works without it.
 			saveRelays:
