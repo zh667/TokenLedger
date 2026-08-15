@@ -23,7 +23,7 @@ using the thing rather than by reasoning about it:
    billing endpoint, no key, no admin account.
 
 So the product is the attribution, and it is free. Reconciliation stays in the
-codebase as a library — see [Deferred](#deferred-reconciliation).
+codebase as a library — see [Not doing](#not-doing-reconciliation).
 
 ## Status
 
@@ -34,20 +34,19 @@ codebase as a library — see [Deferred](#deferred-reconciliation).
 | Per-day / per-model / per-provider / per-site queries, CSV+JSON export | ✅ shipped |
 | Cost estimation with effective-dated rates and off-peak windows | ✅ shipped |
 | Relay software fingerprinting (credential-free) | ✅ shipped |
-| Relay-site attribution | ✅ shipped, **but requires manual config** — being fixed, item A |
-| `/tokenledger` report command | ✅ shipped |
-| New API / Sub2API billing adapters | ✅ library only, **never wired to config** |
-| Reconciliation engine | ✅ library only, **not reachable by a user** |
-| Web UI — sidebar panel, site filter, activity strip, sortable models | ✅ shipped |
-| DeepSeek official balance | ✅ shipped (that vendor only, deliberately) |
+| Relay-site attribution, auto-discovered from the host | ✅ shipped, no configuration |
+| `/tokenledger` — report, `site`, `export`, `diagnostics`, `reindex` | ✅ shipped |
+| Web UI — sidebar panel, site filter, activity heatmap, sortable models | ✅ shipped |
+| Balances — DeepSeek, New API and Sub2API, one key each | ✅ shipped |
 | Settings-page plugin card | ⛔ blocked upstream by a seven-name allowlist |
+| Reconciliation engine | ✅ library only — **cut from the plan**, see below |
+| npm publish, index submissions | ⬜ the owner's call |
 
-`dsh-tokenledger@0.0.1`, zero runtime dependencies, 128 tests, unpublished.
+`dsh-tokenledger@0.1.0`, one runtime dependency, 282 tests, unpublished.
 
-Verified on real data 2026-08-14 (a live agent turn against a live New API
-relay): detect → fold → relay read → reconcile, with zero token delta and the
-charge reproduced exactly from the site's own published ratios. The engine is
-sound. What is missing is the path from a user's configuration to it.
+Verified against a real install throughout, and against the relay's own console
+line by line: three requests at 45,752 + 45,682 + 45,467 = 136,901 prompt tokens
+and 428 + 58 + 207 = 693 output, matching the panel exactly.
 
 ## Approved plan (2026-08-15)
 
@@ -135,11 +134,18 @@ The engine is ✅; the feature is not reachable by any user. Both statements go,
 replaced by the honest state and by the fact that New API reconciliation needs
 administrator credentials.
 
-## Deferred: reconciliation
+## Not doing: reconciliation
 
-Kept in the codebase, removed from the promises.
+Decided 2026-08-15 by the repository owner: **cut, not deferred.** It stays
+in the codebase as a library and comes off the plan.
 
-Why keep it: `verifyCharge` recomputes New API's charge from the ratios the site
+The reason it never earned its place is the audience. Comparing a relay's
+per-request charges against the fold needs New API's `/api/log`, an
+administrator route — so the feature is usable by people who run a relay,
+not by people who buy from one. Balances turned out to be the part that
+mattered and the part an ordinary key can reach, and that shipped instead.
+
+What is kept, and why: `verifyCharge` recomputes New API's charge from the ratios the site
 itself publishes, in exact BigInt rationals with round-half-away-from-zero.
 Measured against 1960 real consumption rows: 1950 reproduced under the declared
 OpenAI convention, 10 under the Anthropic variant, **0 unexplained**. Floating
@@ -147,13 +153,10 @@ point mis-rounds roughly 2% of those rows, which is why the rationals are there.
 Nothing else in the ecosystem does this, and it is the one part of this package
 that would be genuinely hard to rebuild.
 
-Why not promote it: the audience is relay operators, not relay customers.
-
-What it would take to finish: a credential seam (a reference to
-`@deepseek-ai/dsh-credentials-local`, never a literal key in a config file), a
-`createBillingReader(site, credentials)` factory, and wiring in
-`collectReconciliations` — which today reads `config.billing[siteId]`, a map of
-**functions** that only tests can supply.
+What it would take, if it is ever wanted: a `createBillingReader(site,
+credentials)` factory and wiring in `collectReconciliations`, which today reads
+`config.billing[siteId]` — a map of **functions** that only tests can supply.
+The credential seam it would have needed now exists, because balances use it.
 
 ## Shipped — the web UI
 

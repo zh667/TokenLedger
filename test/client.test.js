@@ -779,3 +779,82 @@ test("the badge icon is not pushed in by a centring box", async () => {
 	// The rail still centres, via the badge.
 	assert.ok(css.includes(".tkl_layer.tkl_rail .tkl_badge{border-radius:50%;justify-content:center"));
 });
+
+test("sites get distinct colours, and direct is not one of the relays", async () => {
+	// Two relays drawn in the same grey cannot be told apart, which is the one
+	// thing this section exists to do. `direct` sits outside the ramp because
+	// "the vendor" versus "someone reselling the vendor" is its whole subject.
+	const { exports } = await loadBundle();
+	assert.equal(exports.colorOf("direct", 0), "var(--tkl-direct)");
+	assert.equal(exports.colorOf("a.example", 0), "var(--tkl-series-0)");
+	assert.equal(exports.colorOf("b.example", 1), "var(--tkl-series-1)");
+	// More relays than the palette holds wrap rather than fall off it.
+	assert.equal(exports.colorOf("g.example", 6), "var(--tkl-series-0)");
+});
+
+test("direct does not consume a ramp slot and shift the relays along", async () => {
+	const { exports, render } = await loadBundle();
+	const tree = render(exports.SiteRows, {
+		data: {
+			sites: [
+				{ site: "direct", tokens: 100 },
+				{ site: "a.example", tokens: 200 },
+				{ site: "b.example", tokens: 300 }
+			]
+		},
+		onSelect() {},
+		translate: T
+	});
+	const swatches = findAll(tree, "tkl_swatch").map((n) => n.props.style.background);
+	assert.deepEqual(swatches, ["var(--tkl-direct)", "var(--tkl-series-0)", "var(--tkl-series-1)"]);
+});
+
+test("the distribution is one segmented bar, sized by share of the whole", async () => {
+	// A row of separate bars each scaled to the largest made two sites look
+	// comparable when one was triple the other.
+	const { exports, render } = await loadBundle();
+	const tree = render(exports.SiteRows, {
+		data: { sites: [{ site: "a", tokens: 750 }, { site: "b", tokens: 250 }] },
+		onSelect() {},
+		translate: T
+	});
+	assert.equal(findAll(tree, "tkl_stack").length, 1, "one bar, not one per row");
+	assert.deepEqual(
+		findAll(tree, "tkl_stackSeg").map((n) => n.props.style.width),
+		["75%", "25%"]
+	);
+	// And the rows state the same share in words.
+	const text = textOf(tree);
+	assert.ok(text.includes("75%"));
+	assert.ok(text.includes("25%"));
+});
+
+test("selecting a site dims the rest of the bar rather than hiding them", async () => {
+	const { exports, render } = await loadBundle();
+	const tree = render(exports.SiteRows, {
+		data: { sites: [{ site: "a", tokens: 1 }, { site: "b", tokens: 1 }] },
+		site: "a",
+		onSelect() {},
+		translate: T
+	});
+	assert.ok("data-dim" in findAll(tree, "tkl_stack")[0].props);
+	assert.equal(findAll(tree, "tkl_stackSeg").filter((n) => "data-on" in n.props).length, 1);
+});
+
+test("the activity header names the host's zone, not the browser's", async () => {
+	// Days are grouped by the clock of the process that folded them. A harness on
+	// a server in UTC read from a browser in UTC+8 cuts its days at a boundary
+	// the reader does not share, and labelling the browser would be confidently
+	// wrong.
+	const { exports, render } = await loadBundle();
+	const text = textOf(
+		render(exports.Body, {
+			state: { status: "ready", data: payload({ timeZone: { name: "Asia/Shanghai", offset: "UTC+08:00" } }) },
+			balance: { status: "off" },
+			onSelect() {},
+			onRange() {},
+			translate: T
+		})
+	);
+	assert.ok(text.includes("UTC+08:00"));
+});

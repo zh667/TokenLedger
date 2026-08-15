@@ -116,12 +116,15 @@ window.__ModuleLoader__.load({
 				"--tkl-radius:12px;--tkl-radius-sm:8px;--tkl-radius-xs:6px;" +
 				// The activity ramp: Tailwind's emerald over GitHub's neutral zero.
 				// Level 0 is an alpha grey so it reads on both themes without a swap.
-				"--tkl-level-0:rgba(128,128,128,0.16);--tkl-level-1:#a7f3d0;--tkl-level-2:#6ee7b7;--tkl-level-3:#34d399;--tkl-level-4:#10b981}",
-			"@media (prefers-color-scheme:dark){.tkl_panel{--tkl-level-1:#065f46;--tkl-level-2:#059669;--tkl-level-3:#10b981;--tkl-level-4:#34d399}}",
+				"--tkl-level-0:rgba(128,128,128,0.16);--tkl-level-1:#a7f3d0;--tkl-level-2:#6ee7b7;--tkl-level-3:#34d399;--tkl-level-4:#10b981;" +
+				// Categorical, mid-tone so each reads on either surface. `direct` is
+				// the neutral one; the rest are the relay ramp.
+				"--tkl-direct:#8b93a7;--tkl-series-0:#0ea5e9;--tkl-series-1:#f59e0b;--tkl-series-2:#8b5cf6;--tkl-series-3:#14b8a6;--tkl-series-4:#ec4899;--tkl-series-5:#84cc16}",
+			"@media (prefers-color-scheme:dark){.tkl_panel{--tkl-level-1:#065f46;--tkl-level-2:#059669;--tkl-level-3:#10b981;--tkl-level-4:#34d399;--tkl-direct:#6b7280;--tkl-series-0:#38bdf8;--tkl-series-1:#fbbf24;--tkl-series-2:#a78bfa;--tkl-series-3:#2dd4bf;--tkl-series-4:#f472b6;--tkl-series-5:#a3e635}}",
 			// An explicit theme choice must win over the media query in BOTH
 			// directions, so each is stated rather than inherited.
-			"[data-theme='dark'] .tkl_panel{--tkl-level-1:#065f46;--tkl-level-2:#059669;--tkl-level-3:#10b981;--tkl-level-4:#34d399}",
-			"[data-theme='light'] .tkl_panel{--tkl-level-1:#a7f3d0;--tkl-level-2:#6ee7b7;--tkl-level-3:#34d399;--tkl-level-4:#10b981}",
+			"[data-theme='dark'] .tkl_panel{--tkl-level-1:#065f46;--tkl-level-2:#059669;--tkl-level-3:#10b981;--tkl-level-4:#34d399;--tkl-direct:#6b7280;--tkl-series-0:#38bdf8;--tkl-series-1:#fbbf24;--tkl-series-2:#a78bfa;--tkl-series-3:#2dd4bf;--tkl-series-4:#f472b6;--tkl-series-5:#a3e635}",
+			"[data-theme='light'] .tkl_panel{--tkl-level-1:#a7f3d0;--tkl-level-2:#6ee7b7;--tkl-level-3:#34d399;--tkl-level-4:#10b981;--tkl-direct:#8b93a7;--tkl-series-0:#0ea5e9;--tkl-series-1:#f59e0b;--tkl-series-2:#8b5cf6;--tkl-series-3:#14b8a6;--tkl-series-4:#ec4899;--tkl-series-5:#84cc16}",
 
 			".tkl_header{box-sizing:border-box;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);flex:none;justify-content:space-between;align-items:center;min-height:44px;padding:10px 12px;display:flex;gap:8px}",
 			".tkl_headerLeft{align-items:center;gap:8px;display:flex;min-width:0}",
@@ -143,6 +146,7 @@ window.__ModuleLoader__.load({
 			".tkl_stat{cursor:pointer;font:inherit;text-align:left;transition:background .12s}",
 			".tkl_stat:hover{background:var(--dsw-alias-interactive-bg-hover)}",
 			".tkl_stat[data-on]{border-color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-interactive-bg-active)}",
+			".tkl_zone{color:var(--dsw-alias-label-caption);margin-left:auto;font-size:10px;line-height:16px;font-variant-numeric:tabular-nums}",
 			".tkl_caption{color:var(--dsw-alias-label-tertiary);margin:6px 0 0;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums}",
 
 			// -- sections ----------------------------------------------------------
@@ -162,6 +166,20 @@ window.__ModuleLoader__.load({
 			".tkl_statValue{color:var(--dsw-alias-label-primary);font-size:16px;line-height:22px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
 			".tkl_statLabel{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;margin-top:2px}",
 
+			// -- the site breakdown ------------------------------------------------
+			//
+			// Categorical colour, and ONLY here. DSH's chrome is achromatic and the
+			// panel keeps it that way; a distribution is data, and two relays drawn
+			// in the same grey cannot be told apart at a glance — which is the one
+			// thing this section exists to do.
+			//
+			// `direct` gets its own slot rather than a place in the ramp: it is not
+			// a relay, and the whole point of the section is that distinction.
+			".tkl_stack{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--dsw-alias-fill-l2);margin-bottom:8px}",
+			".tkl_stackSeg{height:8px;min-width:2px;transition:opacity .12s}",
+			".tkl_stack[data-dim] .tkl_stackSeg:not([data-on]){opacity:.32}",
+			".tkl_swatch{width:8px;height:8px;border-radius:2px;flex:none}",
+
 			// -- generic rows (sites) ----------------------------------------------
 			".tkl_rows{flex-direction:column;display:flex}",
 			".tkl_row{width:100%;align-items:center;gap:8px;border:0;background:0 0;border-bottom:1px solid var(--dsw-alias-border-l1);padding:6px 4px;font:inherit;text-align:left;cursor:pointer;display:flex;border-radius:var(--tkl-radius-xs)}",
@@ -169,8 +187,6 @@ window.__ModuleLoader__.load({
 			".tkl_row:hover{background:var(--dsw-alias-interactive-bg-hover)}",
 			".tkl_row[data-on]{background:var(--dsw-alias-interactive-bg-active)}",
 			".tkl_rowName{color:var(--dsw-alias-label-primary);flex:none;width:150px;min-width:0;font-size:12px;line-height:18px;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}",
-			".tkl_rowBarTrack{background:var(--dsw-alias-fill-l2);border-radius:2px;height:6px;flex:1;min-width:16px;overflow:hidden}",
-			".tkl_rowBar{background:var(--dsw-alias-label-tertiary);border-radius:2px;height:6px}",
 			".tkl_rowValue{color:var(--dsw-alias-label-primary);flex:none;font-size:12px;line-height:18px;font-variant-numeric:tabular-nums;text-align:right;min-width:64px}",
 			".tkl_rowMeta{color:var(--dsw-alias-label-tertiary);flex:none;width:44px;font-size:11px;line-height:18px;font-variant-numeric:tabular-nums;text-align:right}",
 
@@ -276,6 +292,7 @@ window.__ModuleLoader__.load({
 			note: "tkl_note",
 			error: "tkl_error",
 			retry: "tkl_retry",
+			zone: "tkl_zone",
 			caption: "tkl_caption",
 			section: "tkl_section",
 			sectionTitle: "tkl_sectionTitle",
@@ -287,11 +304,12 @@ window.__ModuleLoader__.load({
 			stat: "tkl_stat",
 			statValue: "tkl_statValue",
 			statLabel: "tkl_statLabel",
+			stack: "tkl_stack",
+			stackSeg: "tkl_stackSeg",
+			swatch: "tkl_swatch",
 			rows: "tkl_rows",
 			row: "tkl_row",
 			rowName: "tkl_rowName",
-			rowBarTrack: "tkl_rowBarTrack",
-			rowBar: "tkl_rowBar",
 			rowValue: "tkl_rowValue",
 			rowMeta: "tkl_rowMeta",
 			strip: "tkl_strip",
@@ -539,42 +557,86 @@ window.__ModuleLoader__.load({
 		 * change that selection, so hiding the others would strand you on whatever
 		 * you last clicked. Clicking the active row clears the filter.
 		 */
+		/**
+		 * A site's colour.
+		 *
+		 * `direct` is deliberately outside the ramp: it is not a relay, and the
+		 * distinction between "the vendor" and "someone reselling the vendor" is
+		 * the section's whole subject. Relays cycle a fixed palette rather than a
+		 * generated hue, so the same site keeps the same colour across reloads.
+		 */
+		function colorOf(site, index) {
+			return site === "direct" ? "var(--tkl-direct)" : `var(--tkl-series-${index % 6})`;
+		}
+
+		/**
+		 * The site breakdown — the reason this panel exists.
+		 *
+		 * Rows are never filtered by the current selection: this list is how you
+		 * change that selection, so hiding the others would strand you on whatever
+		 * you last clicked. Clicking the active row clears the filter.
+		 */
 		function SiteRows({ data, site, onSelect, translate }) {
 			const rows = data.sites ?? [];
 			if (rows.length === 0) return jsx("p", { className: S.note, children: translate("sites.none") });
-			const max = Math.max(...rows.map((r) => r.tokens ?? 0), 1);
+			const total = rows.reduce((sum, r) => sum + (r.tokens ?? 0), 0);
 			const byId = new Map((data.directory ?? []).map((d) => [d.id, d]));
+			// Relays take the ramp in the order they appear; `direct` sits outside
+			// it, so it must not consume a slot and shift everyone else.
+			let relay = -1;
+			const coloured = rows.map((row) => {
+				if (row.site !== "direct") relay += 1;
+				return { ...row, color: colorOf(row.site, relay) };
+			});
 
-			return jsx("div", {
-				className: S.rows,
-				children: rows.map((row) => {
-					const id = row.site;
-					const known = byId.get(id);
-					const label = id === "direct" ? translate("sites.direct") : id;
-					const routes = known?.routes?.length ? known.routes.join(", ") : undefined;
-					return jsxs(
-						"button",
-						{
-							type: "button",
-							className: S.row,
-							...(id === site ? { "data-on": "" } : {}),
-							title: routes === undefined ? label : `${label} · ${routes}`,
-							onClick: () => onSelect(id === site ? undefined : id),
-							children: [
-								jsx("span", { className: S.rowName, children: label }),
-								jsx("span", {
-									className: S.rowBarTrack,
-									children: jsx("span", {
-										className: S.rowBar,
-										style: { width: `${Math.max(2, share(row.tokens, max))}%` }
-									})
-								}),
-								jsx("span", { className: S.rowValue, children: fmt(row.tokens) })
-							]
-						},
-						id
-					);
-				})
+			return jsxs("div", {
+				children: [
+					// One bar, segmented — a row of separate bars each scaled to the
+					// largest made two sites look comparable when one was triple the
+					// other. Shares of one whole are the honest shape.
+					jsx("div", {
+						className: S.stack,
+						...(site === undefined ? {} : { "data-dim": "" }),
+						children: coloured.map((row) =>
+							jsx(
+								"span",
+								{
+									className: S.stackSeg,
+									...(row.site === site ? { "data-on": "" } : {}),
+									title: `${row.site} · ${fmt(row.tokens)}`,
+									style: { width: `${share(row.tokens, total)}%`, background: row.color }
+								},
+								row.site
+							)
+						)
+					}),
+					jsx("div", {
+						className: S.rows,
+						children: coloured.map((row) => {
+							const id = row.site;
+							const known = byId.get(id);
+							const label = id === "direct" ? translate("sites.direct") : id;
+							const routes = known?.routes?.length ? known.routes.join(", ") : undefined;
+							return jsxs(
+								"button",
+								{
+									type: "button",
+									className: S.row,
+									...(id === site ? { "data-on": "" } : {}),
+									title: routes === undefined ? label : `${label} · ${routes}`,
+									onClick: () => onSelect(id === site ? undefined : id),
+									children: [
+										jsx("span", { className: S.swatch, style: { background: row.color } }),
+										jsx("span", { className: S.rowName, children: label }),
+										jsx("span", { className: S.rowValue, children: fmt(row.tokens) }),
+										jsx("span", { className: S.rowMeta, children: `${Math.round(share(row.tokens, total))}%` })
+									]
+								},
+								id
+							);
+						})
+					})
+				]
 			});
 		}
 
@@ -1131,7 +1193,21 @@ window.__ModuleLoader__.load({
 						title: translate("section.sites"),
 						children: jsx(SiteRows, { data, site, onSelect, translate })
 					}),
-					empty ? null : jsx(Section, { title: translate("section.activity"), children: jsx(ActivityStrip, { data, translate }) }),
+					empty
+						? null
+						: jsx(Section, {
+								title: translate("section.activity"),
+								// Days are cut by the HOST's clock, so the panel says whose.
+								action:
+									data.timeZone === undefined
+										? null
+										: jsx("span", {
+												className: S.zone,
+												title: data.timeZone.name ?? "",
+												children: data.timeZone.offset
+											}),
+								children: jsx(ActivityStrip, { data, translate })
+							}),
 					empty ? null : jsx(Section, { title: translate("section.models"), children: jsx(ModelTable, { data, translate }) }),
 					jsx(Footer, { data, translate })
 				]
@@ -1438,6 +1514,7 @@ window.__ModuleLoader__.load({
 		exports.Body = Body;
 		exports.StatRow = StatRow;
 		exports.SiteRows = SiteRows;
+		exports.colorOf = colorOf;
 		exports.ActivityStrip = ActivityStrip;
 		exports.ModelTable = ModelTable;
 		exports.BalanceCard = BalanceCard;

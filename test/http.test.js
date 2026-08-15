@@ -6,6 +6,7 @@ import {
 	dailyModels,
 	USAGE_PATH,
 	hostNameOf,
+	hostTimeZone,
 	isLoopbackAddress,
 	parseQuery,
 	registerRoutes,
@@ -290,4 +291,27 @@ test("rows are ordered by day, then by size within the day", () => {
 		{ day: "2026-08-12", model: "mid", tokens: 50 }
 	]);
 	assert.deepEqual(rows.map((r) => r.model), ["mid", "big", "small"]);
+});
+
+test("the payload names the host's timezone, offset and all", () => {
+	const store = seeded();
+	try {
+		const p = usagePayload({ store, sites: () => [] }, { range: {} });
+		assert.match(p.timeZone.offset, /^UTC[+-]\d{2}:\d{2}$/);
+	} finally {
+		store.close();
+	}
+});
+
+test("the offset's sign is inverted from getTimezoneOffset, which counts west", () => {
+	// getTimezoneOffset returns minutes WEST of UTC, so Tokyo (UTC+9) reports
+	// -540. Printing it unflipped would label every eastern zone as western.
+	const tokyo = hostTimeZone({ getTimezoneOffset: () => -540 });
+	assert.equal(tokyo.offset, "UTC+09:00");
+	const newYork = hostTimeZone({ getTimezoneOffset: () => 300 });
+	assert.equal(newYork.offset, "UTC-05:00");
+	// Half-hour and quarter-hour zones exist and must not round away.
+	assert.equal(hostTimeZone({ getTimezoneOffset: () => -330 }).offset, "UTC+05:30");
+	assert.equal(hostTimeZone({ getTimezoneOffset: () => -345 }).offset, "UTC+05:45");
+	assert.equal(hostTimeZone({ getTimezoneOffset: () => 0 }).offset, "UTC+00:00");
 });
