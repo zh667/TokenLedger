@@ -46,8 +46,9 @@ test("declaring dsh.client obliges the package to export ./client", () => {
 	assert.ok(pkg.exports["./client"], 'dsh.client without an "./client" export is a hard error upstream');
 });
 
+const root = await import("../src/index.js");
+
 test("the package root is a valid Cordis plugin, because the entry name points at it", async () => {
-	const root = await import("../src/index.js");
 	assert.equal(typeof root.apply, "function", "a bare entry name loads the root export as the plugin");
 	assert.ok(Array.isArray(root.inject));
 	assert.equal(typeof root.name, "string");
@@ -127,5 +128,24 @@ test("every local image the README shows is shipped", () => {
 		);
 		const covered = pkg.files.some((entry) => src === entry || src.startsWith(`${entry}/`));
 		assert.ok(covered, `${src} is not under any entry in files`);
+	}
+});
+
+test("the package root stays a promise, not an inventory", () => {
+	// It re-exported 88 symbols, internals included, so every rename downstream
+	// was a breaking change — which is what had blocked cleaning the modules up.
+	// Anything not listed here is still reachable through its own subpath, where
+	// the import itself says you are reaching for an internal.
+	const promised = ["apply", "inject", "name", "foldUsage", "bySite", "byModel"].sort();
+	const actual = Object.keys(root).sort();
+	assert.deepEqual(actual, promised, "widening the root is a decision, so it has to be made here first");
+});
+
+test("every subpath in exports actually resolves", async () => {
+	// Narrowing the root is only safe because the subpaths carry the rest.
+	for (const [subpath, target] of Object.entries(pkg.exports)) {
+		if (subpath === "./package.json" || subpath === "./client") continue; // client needs a browser
+		const module = await import(new URL(`../${target.replace(/^\.\//, "")}`, import.meta.url));
+		assert.ok(Object.keys(module).length > 0, `${subpath} resolves but exports nothing`);
 	}
 });
