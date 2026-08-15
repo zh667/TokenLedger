@@ -171,6 +171,7 @@ export function renderReport(input) {
 		const hit = m.cacheHitRate === null ? "" : `(${m.cacheHitRate}%)`;
 		return [
 			m.model,
+			num(m.requests),
 			num(m.inputTokens),
 			`${num(m.cacheReadTokens)}${hit}`,
 			num(m.outputTokens),
@@ -181,6 +182,11 @@ export function renderReport(input) {
 		...table(
 			[
 				{ title: "模型" },
+				// The request count is what makes the cache percentage readable. A
+				// single request cannot have a meaningful hit rate — it either found
+				// a prefix already cached or it did not — and without n on the row,
+				// 11.7% invites the conclusion that a relay is caching badly.
+				{ title: "请求", align: "right" },
 				{ title: "输入", align: "right" },
 				{ title: "缓存", align: "right" },
 				{ title: "输出", align: "right" },

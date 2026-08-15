@@ -240,9 +240,8 @@ test("withKnownSoftware does not mutate what it is given", () => {
 
 // --- reconciliation stays out of the way ------------------------------------
 
-const DAY = Date.parse("2026-08-15T10:00:00");
 let seq = 0;
-const relayTraffic = () => {
+const relayTraffic = (at = Date.now()) => {
 	const store = LedgerStore.open(":memory:");
 	const state = store.loadState("s");
 	applyUsageDelta(
@@ -251,7 +250,7 @@ const relayTraffic = () => {
 			{
 				type: "assistant/message",
 				seq: seq++,
-				time: DAY,
+				time: at,
 				data: {
 					turn: 1,
 					step: 1,
@@ -613,6 +612,38 @@ test("export sweeps first, so it cannot write figures a sweep would have improve
 	try {
 		await runCommand("export", { store, config: {}, sweep: async () => void swept++ });
 		assert.equal(swept, 1);
+	} finally {
+		store.close();
+	}
+});
+
+test("an unrecognized word is not silently reinterpreted as a site filter", async () => {
+	// It used to be: `/tokenledger export` on a build without that subcommand
+	// rendered a confident, empty report headed "site: export". A typo did the
+	// same. Both look like a finding about your usage rather than a mistake in
+	// what was typed.
+	const store = relayTraffic();
+	try {
+		// A typo, and equally a subcommand from a newer version than is installed.
+		const text = await runCommand("diagnostcs", { store, config: {} });
+		assert.ok(text.includes("不认识"));
+		assert.ok(text.includes("api.relay-one.example"), "say which site names would have worked");
+		assert.ok(text.includes("diagnostics"), "and which subcommands exist");
+		assert.equal(text.includes("没有记录到任何用量"), false, "an empty report is the wrong answer here");
+	} finally {
+		store.close();
+	}
+});
+
+test("a real site idle during the range still gets the empty-range message", async () => {
+	// The check is against all time on purpose: a site that exists but was idle
+	// this week is a genuine empty range, not a typo, and the two need different
+	// answers.
+	const store = relayTraffic(Date.now() - 200 * 86_400_000);
+	try {
+		const text = await runCommand("2 api.relay-one.example", { store, config: {} });
+		assert.equal(text.includes("不认识"), false);
+		assert.ok(text.includes("没有记录到任何用量"));
 	} finally {
 		store.close();
 	}

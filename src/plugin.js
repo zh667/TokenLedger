@@ -462,6 +462,23 @@ export async function runCommand(rawInput, deps) {
 	const site = rest.find((a) => !/^\d+$/.test(a));
 	const range = Number.isFinite(days) && days > 0 ? { from: dayKeyDaysAgo(days - 1) } : {};
 
+	// A word this command does not recognise used to become a site filter, so a
+	// typo — or a subcommand from a newer version than the one installed —
+	// produced a confident, empty report about a site that does not exist.
+	// Checked against all time rather than the range: a real site with no traffic
+	// this week is an empty range, which already has its own honest message.
+	if (site !== undefined && !store.bySite({}).some((row) => row.site === site)) {
+		const known = store.bySite({}).map((row) => row.site);
+		return [
+			`不认识 \`${site}\`——它既不是子命令，也不是有记录的中转站。`,
+			"",
+			known.length > 0 ? `有记录的中转站：${known.join("、")}` : "目前还没有任何中转站的记录。",
+			"",
+			"可用子命令：site / export / diagnostics / reindex / reconcile",
+			"（如果你刚看到某个子命令不存在，多半是插件还没更新到那个版本。）"
+		].join("\n");
+	}
+
 	// Only reconcile when a billing reader actually exists, or when explicitly
 	// asked. Sites used to be hand-configured, so a site with no reader was a
 	// half-finished setup worth flagging. Now that they are discovered, that

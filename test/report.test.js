@@ -221,9 +221,12 @@ test("a day argument narrows the range, a word argument filters the site", async
 	const store = seeded();
 	try {
 		assert.ok((await runCommand("30", { store, config: {} })).includes("起"));
+		// A word that names no site is now a mistake to report, not a filter to
+		// honour: rendering an empty report headed "site: nowhere" reads as a
+		// finding about your usage rather than a typo.
 		const filtered = await runCommand("30 nowhere", { store, config: {} });
-		assert.ok(filtered.includes("中转站：nowhere"));
-		assert.ok(filtered.includes("没有记录到任何用量"), "a filter matching nothing must not show other sites' numbers");
+		assert.ok(filtered.includes("不认识"));
+		assert.equal(filtered.includes("1,100"), false, "and it must not show other sites' numbers");
 	} finally {
 		store.close();
 	}
@@ -289,4 +292,22 @@ test("a billing reader that throws degrades to unread rather than failing the co
 	} finally {
 		store.close();
 	}
+});
+
+test("each model row carries its request count, so a percentage can be read", () => {
+	// Without n on the row, a single request reporting 11.7% cache hits invites
+	// the conclusion that a relay caches badly, when the only honest reading is
+	// that one request is not a sample.
+	const text = renderReport({
+		range: {},
+		days: [{ day: "2026-08-15", tokens: 30_781, requests: 1 }],
+		models: [
+			{ model: "gpt-5.6-sol", requests: 1, inputTokens: 27_162, cacheReadTokens: 3584, outputTokens: 35, cacheHitRate: 11.7 }
+		],
+		sites: []
+	});
+	const row = text.split("\n").find((l) => l.includes("gpt-5.6-sol"));
+	assert.ok(/\s1\s/.test(row), `no request count on the row: ${row}`);
+	assert.ok(row.includes("11.7%"));
+	assert.ok(text.includes("请求"), "and the column is labelled");
 });
