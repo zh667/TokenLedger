@@ -415,6 +415,38 @@ export async function runCommand(rawInput, deps) {
 		});
 	}
 
+	// `diagnostics` and `export` existed on the store, and were advertised as
+	// shipped, but no command reached them — the same overclaim as reconciliation,
+	// found while listing what a user can actually type.
+	if (args[0] === "diagnostics" || args[0] === "doctor") {
+		const d = store.diagnostics();
+		return [
+			"── 索引诊断 ──",
+			`  schema 版本      ${d.schemaVersion}`,
+			`  汇总行数         ${d.rollupRows}`,
+			`  有用量的会话     ${d.sessionsWithUsage}`,
+			`  已跟踪的会话     ${d.sessionsTracked}`,
+			`  覆盖区间         ${d.firstDay ?? "—"} → ${d.lastDay ?? "—"}`,
+			`  最后更新         ${d.lastUpdatedAt === undefined ? "—" : new Date(d.lastUpdatedAt).toLocaleString()}`,
+			// Worth its own line: rows that could not be attributed are the one
+			// number that says the fold is missing something, rather than that
+			// there was nothing to find.
+			`  归因不上的行     ${d.unattributedRows}${d.unattributedRows > 0 ? "  ← 这些行的 provider 或 model 是 unknown" : ""}`
+		].join("\n");
+	}
+
+	if (args[0] === "export") {
+		const format = args[1] === "csv" ? "csv" : "json";
+		const rest = args.slice(args[1] === "csv" || args[1] === "json" ? 2 : 1);
+		const days = Number.parseInt(rest[0] ?? "", 10);
+		const site = rest.find((a) => !/^\d+$/.test(a));
+		const range = Number.isFinite(days) && days > 0 ? { from: dayKeyDaysAgo(days - 1) } : {};
+		await doSweep?.();
+		return format === "csv"
+			? store.exportCsv(range, site)
+			: JSON.stringify(store.exportJson(range, site), null, 1);
+	}
+
 	if (args[0] === "reindex") {
 		const stats = await reindex?.();
 		return `已重建索引：扫描 ${stats?.scanned ?? 0}，更新 ${stats?.updated ?? 0}，失败 ${stats?.failed ?? 0}。`;
@@ -754,7 +786,7 @@ export function apply(ctx, userConfig = {}) {
 				yield commands.register({
 					name: config.commandName ?? "tokenledger",
 					description: "Token usage by model and relay site",
-					input: { hint: "[days] [site] | site [add|rm] <url> | reconcile | reindex" },
+					input: { hint: "[days] [site] | site | export [csv] | diagnostics | reindex" },
 					handler: async (invocation) => {
 						try {
 							return { kind: "success", text: await handleCommand(invocation.rawInput ?? "") };

@@ -562,3 +562,58 @@ test("a not-yet-ready settings service is not reported as a missing one", async 
 		store.close();
 	}
 });
+
+// --- the surfaces that existed but nothing could reach ----------------------
+
+test("diagnostics is reachable from the command, and names unattributed rows", async () => {
+	// The store had it and the README claimed it shipped, but no command reached
+	// it — the same overclaim as reconciliation, found by listing what a user can
+	// actually type.
+	const store = relayTraffic();
+	try {
+		const text = await runCommand("diagnostics", { store, config: {} });
+		assert.ok(text.includes("索引诊断"));
+		assert.ok(text.includes("汇总行数"));
+		assert.ok(text.includes("归因不上的行"), "the one number that says the fold missed something");
+	} finally {
+		store.close();
+	}
+});
+
+test("export defaults to json and takes csv on request", async () => {
+	const store = relayTraffic();
+	try {
+		const json = await runCommand("export", { store, config: {} });
+		const parsed = JSON.parse(json);
+		assert.ok(Array.isArray(parsed.rows));
+		assert.equal(parsed.rows[0].site, "api.relay-one.example");
+
+		const csv = await runCommand("export csv", { store, config: {} });
+		assert.ok(csv.split("\n")[0].startsWith("day,site,provider,model"));
+		assert.ok(csv.includes("api.relay-one.example"));
+	} finally {
+		store.close();
+	}
+});
+
+test("export accepts a day range and a site filter like the report does", async () => {
+	const store = relayTraffic();
+	try {
+		const filtered = JSON.parse(await runCommand("export json 30 nowhere", { store, config: {} }));
+		assert.deepEqual(filtered.rows, [], "a filter matching nothing must not export another site's rows");
+		assert.equal(filtered.site, "nowhere");
+	} finally {
+		store.close();
+	}
+});
+
+test("export sweeps first, so it cannot write figures a sweep would have improved", async () => {
+	const store = relayTraffic();
+	let swept = 0;
+	try {
+		await runCommand("export", { store, config: {}, sweep: async () => void swept++ });
+		assert.equal(swept, 1);
+	} finally {
+		store.close();
+	}
+});
