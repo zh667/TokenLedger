@@ -17,6 +17,13 @@
  * to drift. That equality is also the acceptance test for the whole UI, which
  * only works if there is nothing here to get independently wrong.
  *
+ * ## What this module is not
+ *
+ * Transport, screening, and one view model. The day arithmetic and the per-day
+ * model fold used to live here too, which put the loopback fence in the same
+ * file as a set of date helpers — the two things least worth reading past each
+ * other. They now sit in `usage.js`, beside the folds they belong with.
+ *
  * ## What is deliberately not exposed
  *
  * Counts and identifiers only — the same rule the collector follows. No prompt,
@@ -28,7 +35,7 @@
 
 import { createRequire } from "node:module";
 
-import { dayKey } from "./usage.js";
+import { dailyModels, dayKey, fromDaysAgo, hostTimeZone, monthStart } from "./usage.js";
 
 /**
  * This package's version, read from its own manifest.
@@ -60,62 +67,6 @@ export const ACCOUNTS_PATH = `${BASE_PATH}/accounts`;
  * the one the comparable dashboard uses.
  */
 export const ACTIVITY_DAYS = 371;
-
-/** `YYYY-MM-DD` for N days back, inclusive of today. */
-function fromDaysAgo(days) {
-	return dayKey(Date.now() - (days - 1) * 86_400_000);
-}
-
-/**
- * Collapse route rows into one row per (day, model).
- *
- * `byRoute` is keyed by `(day, site, provider, model)`, so one model reached
- * through two relays is two rows — and the day tooltip listed the same model
- * twice, with each half of its real total. Zero-token rows are dropped as well:
- * a model that ran nothing that day is not part of that day's breakdown.
- *
- * @param rows - route rows for the activity window.
- * @returns `{ day, model, tokens }`, descending by tokens within each day.
- */
-export function dailyModels(rows) {
-	const byKey = new Map();
-	for (const row of rows) {
-		if (!(row.tokens > 0)) continue;
-		const key = `${row.day}\u0000${row.model}`;
-		const hit = byKey.get(key);
-		if (hit === undefined) byKey.set(key, { day: row.day, model: row.model, tokens: row.tokens });
-		else hit.tokens += row.tokens;
-	}
-	return [...byKey.values()].sort((a, b) => (a.day === b.day ? b.tokens - a.tokens : a.day < b.day ? -1 : 1));
-}
-
-/**
- * The host's IANA zone and UTC offset, as the panel should print it.
- *
- * @returns `{ name, offset }`, e.g. `{ name: "Asia/Shanghai", offset: "UTC+08:00" }`.
- */
-export function hostTimeZone(now = new Date()) {
-	// getTimezoneOffset is minutes WEST of UTC, so its sign is inverted from how
-	// an offset is written.
-	const minutes = -now.getTimezoneOffset();
-	const sign = minutes < 0 ? "-" : "+";
-	const abs = Math.abs(minutes);
-	const hh = String(Math.floor(abs / 60)).padStart(2, "0");
-	const mm = String(abs % 60).padStart(2, "0");
-	let name;
-	try {
-		name = Intl.DateTimeFormat().resolvedOptions().timeZone;
-	} catch {
-		name = undefined;
-	}
-	return { name, offset: `UTC${sign}${hh}:${mm}` };
-}
-
-/** First day of the current month, in local time — the store keys days that way. */
-function monthStart() {
-	const now = new Date();
-	return dayKey(new Date(now.getFullYear(), now.getMonth(), 1).getTime());
-}
 
 /**
  * Loopback test for a bare address.
