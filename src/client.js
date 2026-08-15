@@ -73,8 +73,25 @@ window.__ModuleLoader__.load({
 		// so they cannot leak into the host.
 		const css = [
 			// -- the seat, beside the settings gear -------------------------------
-			".tkl_layer{flex:none;align-items:center;width:100%;height:49px;margin:8px 0 0;display:flex;position:relative}",
-			".tkl_badge{width:100%;height:49px;color:var(--dsw-alias-label-primary);cursor:pointer;background:0 0;border:none;border-radius:12px;align-items:center;gap:8px;padding:0 8px 0 6px;font-family:inherit;font-size:14px;display:inline-flex;overflow:hidden}",
+			// `sidebar.footer.action` is a LIST slot, but its container is a
+			// **nowrap row**, and every occupant so far claims `width:100%`. With
+			// one action that is fine. With two, the first takes the whole column
+			// and the second is laid out past the sidebar's right edge — rendered,
+			// visible, `opacity: 1`, and completely off the panel. That is exactly
+			// what happened here: the badge measured `x: 268` in a column ending
+			// at 268, which looks identical to "the plugin never loaded".
+			//
+			// Shrinking alone does not fix it. The other occupant is `flex:none`
+			// and will not yield, so a shrinkable item just gets squeezed to a
+			// sliver still positioned after it. The container has to wrap, and
+			// wrapping it is the only change that also holds when a third plugin
+			// takes this seat.
+			//
+			// Reached through `:has()` on the slot marker rather than the
+			// container's hashed CSS-module class, which is not ours to depend on.
+			"div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}",
+			".tkl_layer{flex:0 0 100%;min-width:0;align-items:center;height:49px;margin:8px 0 0;display:flex;position:relative}",
+			".tkl_badge{width:100%;min-width:0;height:49px;color:var(--dsw-alias-label-primary);cursor:pointer;background:0 0;border:none;border-radius:12px;align-items:center;gap:8px;padding:0 8px 0 6px;font-family:inherit;font-size:14px;display:inline-flex;overflow:hidden}",
 			".tkl_badge:hover{background:var(--dsw-alias-interactive-bg-hover-solid)}",
 			".tkl_badge[data-active]{background:var(--dsw-alias-interactive-bg-hover)}",
 			".tkl_badgeIcon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:24px}",
@@ -83,7 +100,7 @@ window.__ModuleLoader__.load({
 			// Collapsed sidebar: the shell narrows to a 56px rail and every control
 			// becomes a 36px circle. Without this the badge keeps its full width and
 			// spills out of the rail.
-			".tkl_layer.tkl_rail{width:36px;height:36px;margin:0}",
+			".tkl_layer.tkl_rail{flex:none;width:36px;height:36px;margin:0}",
 			".tkl_layer.tkl_rail .tkl_badge{border-radius:50%;justify-content:center;gap:0;width:36px;height:36px;padding:0}",
 			".tkl_layer.tkl_rail .tkl_badgeLabel,.tkl_layer.tkl_rail .tkl_badgeValue{display:none}",
 

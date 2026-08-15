@@ -527,3 +527,26 @@ test("a locale service that throws costs the dictionaries, not the seat", async 
 	}
 	assert.equal(registered.length, 1, "the seat must still be taken");
 });
+
+test("the footer-action container is made to wrap, or a second plugin lands off-screen", async () => {
+	// `sidebar.footer.action` is a list slot whose container is a NOWRAP row.
+	// Every occupant claims the full column width, so the first takes all of it
+	// and the next is laid out past the sidebar's right edge — rendered,
+	// visible, opacity 1, and completely outside the panel. On a real install
+	// this badge measured x:268 in a column ending at 268, which is
+	// indistinguishable from "the plugin never loaded" and was diagnosed only
+	// by querying the DOM.
+	//
+	// Shrinking is not enough: the other occupant is flex:none and will not
+	// yield. The container has to wrap.
+	const { dom } = await loadBundle();
+	const css = dom.head.children[0].textContent;
+	assert.ok(
+		css.includes("div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}"),
+		"without this rule a second footer action is pushed outside the sidebar"
+	);
+	// Reached through the slot marker, never the container's hashed CSS-module
+	// class, which is not ours to depend on.
+	assert.equal(/hHd-|_footerActions_/.test(css), false, "must not target the host's hashed class");
+	assert.match(css, /\.tkl_layer\{flex:0 0 100%/, "and the layer must claim a full row of its own");
+});
