@@ -858,3 +858,31 @@ test("the activity header names the host's zone, not the browser's", async () =>
 	);
 	assert.ok(text.includes("UTC+08:00"));
 });
+
+test("freshness is stated as elapsed time, not as a clock reading", async () => {
+	// The sweep runs every minute, so an absolute timestamp is always "about a
+	// minute ago" written as a time the reader has to subtract from. The line
+	// also said "index updated" — this package's internal word for its rollup
+	// table — and a user reasonably asked what an index was.
+	const { exports } = await loadBundle();
+	const now = Date.UTC(2026, 7, 15, 12, 0, 0);
+	assert.equal(exports.agoLabel(now - 5_000, T, now), "footer.justNow");
+	assert.equal(exports.agoLabel(now - 89_000, T, now), "footer.justNow", "a sweep-interval gap is not staleness");
+	assert.equal(exports.agoLabel(now - 5 * 60_000, T, now), "footer.minutes:5");
+	assert.equal(exports.agoLabel(now - 3 * 3_600_000, T, now), "footer.hours:3");
+	assert.equal(exports.agoLabel(now - 2 * 86_400_000, T, now), "footer.days:2");
+	assert.equal(exports.agoLabel(undefined, T, now), "footer.never");
+	// A clock skew that puts the last sweep in the future must not print a
+	// negative age.
+	assert.equal(exports.agoLabel(now + 60_000, T, now), "footer.justNow");
+});
+
+test("the footer says nothing about an index", async () => {
+	const { exports } = await loadBundle();
+	for (const dict of [exports.zh, exports.en]) {
+		for (const [key, value] of Object.entries(dict)) {
+			if (!key.startsWith("footer.")) continue;
+			assert.equal(/索引|\bindex\b/i.test(value), false, `${key} leaks internal vocabulary: ${value}`);
+		}
+	}
+});

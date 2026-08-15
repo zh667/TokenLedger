@@ -1113,13 +1113,37 @@ window.__ModuleLoader__.load({
 		const SCHEME_LABELS = { deepseek: "API 余额", newapi: "New API", sub2api: "Sub2API" };
 
 		/** Index health. A stale or lossy index must say so on the page. */
+		/**
+		 * How long ago, in the words the question is actually asked in.
+		 *
+		 * The sweep runs every minute, so an absolute timestamp is always "about a
+		 * minute ago" written as a clock time the reader has to subtract from. It
+		 * also read as jargon — the line said "index updated", which is this
+		 * package's internal word for its rollup table, and a user reasonably
+		 * asked what an index was.
+		 */
+		function agoLabel(at, translate, now = Date.now()) {
+			if (typeof at !== "number") return translate("footer.never");
+			const seconds = Math.max(0, Math.round((now - at) / 1000));
+			if (seconds < 90) return translate("footer.justNow");
+			const minutes = Math.round(seconds / 60);
+			if (minutes < 60) return translate("footer.minutes", { n: minutes });
+			const hours = Math.round(minutes / 60);
+			if (hours < 24) return translate("footer.hours", { n: hours });
+			return translate("footer.days", { n: Math.round(hours / 24) });
+		}
+
 		function Footer({ data, translate }) {
 			const d = data.diagnostics ?? {};
-			const updated = typeof d.lastUpdatedAt === "number" ? new Date(d.lastUpdatedAt).toLocaleString() : "—";
 			return jsxs("div", {
 				className: S.footer,
 				children: [
-					translate("footer.updated", { at: updated }),
+					jsx("span", {
+						// The exact moment is still one hover away, for anyone who
+						// wants to know rather than to judge freshness.
+						title: typeof d.lastUpdatedAt === "number" ? new Date(d.lastUpdatedAt).toLocaleString() : "",
+						children: translate("footer.updated", { ago: agoLabel(d.lastUpdatedAt, translate) })
+					}),
 					d.unattributedRows > 0
 						? jsx("span", {
 								className: S.warn,
@@ -1380,8 +1404,13 @@ window.__ModuleLoader__.load({
 			"balance.granted": "其中赠送 {amount}",
 			"balance.noRoute": "没有直连 DeepSeek 官方的路由——中转站没有余额接口。",
 			"balance.unavailable": "这个部署问不到 provider 配置。",
-			"footer.updated": "索引更新于 {at}",
-			"footer.unattributed": "{n} 行归因不上"
+			"footer.updated": "{ago}从会话日志读取",
+			"footer.justNow": "刚刚",
+			"footer.minutes": "{n} 分钟前",
+			"footer.hours": "{n} 小时前",
+			"footer.days": "{n} 天前",
+			"footer.never": "尚未",
+			"footer.unattributed": "{n} 行认不出是哪个站"
 		};
 		const en = {
 			"panel.title": "Token Ledger",
@@ -1451,8 +1480,13 @@ window.__ModuleLoader__.load({
 			"balance.granted": "{amount} granted",
 			"balance.noRoute": "No direct DeepSeek route — relays have no balance API.",
 			"balance.unavailable": "This deployment exposes no provider directory.",
-			"footer.updated": "Index updated {at}",
-			"footer.unattributed": "{n} rows unattributed"
+			"footer.updated": "Read from your session logs {ago}",
+			"footer.justNow": "just now",
+			"footer.minutes": "{n} min ago",
+			"footer.hours": "{n} h ago",
+			"footer.days": "{n} d ago",
+			"footer.never": "never",
+			"footer.unattributed": "{n} rows could not be attributed"
 		};
 
 		/**
@@ -1520,6 +1554,7 @@ window.__ModuleLoader__.load({
 		exports.BalanceCard = BalanceCard;
 		exports.AccountPicker = AccountPicker;
 		exports.Footer = Footer;
+		exports.agoLabel = agoLabel;
 		exports.translateWith = translateWith;
 		exports.buildQuery = buildQuery;
 		exports.makeLevelScale = makeLevelScale;
