@@ -64,8 +64,8 @@ window.__ModuleLoader__.load({
 		const NS = "tokenLedger";
 		const USAGE_PATH = "/api/tokenledger/usage";
 		const BALANCE_PATH = "/api/tokenledger/balance";
-		/** Twelve whole weeks; must match the host's window or the strip has holes. */
-		const ACTIVITY_DAYS = 84;
+		/** A year of whole weeks; must match the host's window or the strip has holes. */
+		const ACTIVITY_DAYS = 371;
 
 		//#region style
 		//
@@ -170,9 +170,19 @@ window.__ModuleLoader__.load({
 			// -- activity strip ----------------------------------------------------
 			// A strip, not a month grid: one row of weeks reads at a glance and
 			// costs 90px instead of a viewport.
-			".tkl_strip{overflow-x:auto;padding-bottom:2px}",
-			".tkl_stripGrid{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,12px);gap:3px}",
-			".tkl_cell{width:12px;height:12px;border-radius:2px;background:var(--tkl-level-0);border:0;padding:0;cursor:default}",
+			".tkl_strip{overflow-x:auto;padding-bottom:2px;display:flex;gap:4px}",
+			".tkl_weekdays{display:grid;grid-template-rows:repeat(7,12px);gap:3px;flex:none;padding-top:15px}",
+			".tkl_weekday{color:var(--dsw-alias-label-caption);font-size:9px;line-height:12px;text-align:right;width:14px}",
+			".tkl_stripCols{min-width:0}",
+			".tkl_months{display:grid;grid-auto-flow:column;gap:3px;height:12px;margin-bottom:3px}",
+			".tkl_month{color:var(--dsw-alias-label-caption);font-size:9px;line-height:12px;white-space:nowrap;overflow:visible}",
+			// `grid-auto-columns` is the whole fix for the cells drifting apart:
+			// without it the implicit columns are `auto` and stretch to fill the
+			// panel, so twelve weeks of 12px cells spread across 430px and the
+			// chart reads as a sparse scatter rather than a heatmap.
+			".tkl_stripGrid{display:grid;grid-auto-flow:column;grid-auto-columns:12px;grid-template-rows:repeat(7,12px);gap:3px;justify-content:start}",
+			".tkl_cell{width:12px;height:12px;border-radius:2px;background:var(--tkl-level-0);border:0;padding:0;cursor:pointer}",
+			".tkl_cell:hover{outline:1px solid var(--dsw-alias-label-tertiary);outline-offset:1px}",
 			".tkl_cell[data-l='1']{background:var(--tkl-level-1)}",
 			".tkl_cell[data-l='2']{background:var(--tkl-level-2)}",
 			".tkl_cell[data-l='3']{background:var(--tkl-level-3)}",
@@ -180,6 +190,27 @@ window.__ModuleLoader__.load({
 			".tkl_cellPad{width:12px;height:12px}",
 			".tkl_legend{align-items:center;gap:3px;margin-top:5px;font-size:10px;line-height:14px;color:var(--dsw-alias-label-caption);display:flex}",
 			".tkl_legendSwatch{width:10px;height:10px;border-radius:2px}",
+
+			// -- the day tooltip ---------------------------------------------------
+			// A cell that only carries a `title` attribute answers "how much" after
+			// a second of hovering and nothing else. The panel already has the
+			// per-model split for that day, so showing it is nearly free and turns
+			// the strip from decoration into something you read.
+			".tkl_tip{position:fixed;z-index:40;pointer-events:none;min-width:180px;max-width:250px;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:var(--tkl-radius-sm);box-shadow:var(--dsw-shadow-lv2);padding:8px 10px}",
+			".tkl_tipHead{display:flex;align-items:center;gap:6px;justify-content:space-between}",
+			".tkl_tipDate{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;font-variant-numeric:tabular-nums}",
+			".tkl_tipLevel{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:14px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:0 6px;flex:none}",
+			".tkl_tipTotal{color:var(--dsw-alias-label-primary);font-size:15px;line-height:22px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}",
+			".tkl_tipUnit{color:var(--dsw-alias-label-tertiary);font-size:10px;font-weight:400;margin-left:4px}",
+			".tkl_tipModels{margin-top:6px;border-top:1px solid var(--dsw-alias-border-l1);padding-top:6px;display:flex;flex-direction:column;gap:5px}",
+			".tkl_tipRow{font-size:11px;line-height:15px}",
+			".tkl_tipRowHead{display:flex;gap:6px;align-items:baseline}",
+			".tkl_tipName{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+			".tkl_tipValue{color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums;flex:none}",
+			".tkl_tipPct{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;flex:none;width:30px;text-align:right}",
+			".tkl_tipBar{background:var(--dsw-alias-fill-l2);border-radius:2px;height:3px;margin-top:2px;overflow:hidden}",
+			".tkl_tipBarFill{background:var(--tkl-level-4);border-radius:2px;height:3px}",
+			".tkl_tipQuiet{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;margin:6px 0 0}",
 
 			// -- model table -------------------------------------------------------
 			".tkl_table{width:100%;border-collapse:collapse;font-size:12px}",
@@ -254,7 +285,27 @@ window.__ModuleLoader__.load({
 			rowValue: "tkl_rowValue",
 			rowMeta: "tkl_rowMeta",
 			strip: "tkl_strip",
+			weekdays: "tkl_weekdays",
+			weekday: "tkl_weekday",
+			stripCols: "tkl_stripCols",
+			months: "tkl_months",
+			month: "tkl_month",
 			stripGrid: "tkl_stripGrid",
+			tip: "tkl_tip",
+			tipHead: "tkl_tipHead",
+			tipDate: "tkl_tipDate",
+			tipLevel: "tkl_tipLevel",
+			tipTotal: "tkl_tipTotal",
+			tipUnit: "tkl_tipUnit",
+			tipModels: "tkl_tipModels",
+			tipRow: "tkl_tipRow",
+			tipRowHead: "tkl_tipRowHead",
+			tipName: "tkl_tipName",
+			tipValue: "tkl_tipValue",
+			tipPct: "tkl_tipPct",
+			tipBar: "tkl_tipBar",
+			tipBarFill: "tkl_tipBarFill",
+			tipQuiet: "tkl_tipQuiet",
 			cell: "tkl_cell",
 			cellPad: "tkl_cellPad",
 			legend: "tkl_legend",
@@ -527,70 +578,238 @@ window.__ModuleLoader__.load({
 		 * has contrast rather than rendering as one flat colour.
 		 */
 		function ActivityStrip({ data, translate }) {
+			const [hover, setHover] = react.useState(null);
+			const scroller = react.useRef(null);
+
 			// Its own window, not the selected range. Tied to the range it
-			// collapsed to one cell whenever "today" was picked, leaving a mostly
-			// empty seven-row grid that read as a broken chart rather than as a
-			// quiet day.
+			// collapsed to a single cell whenever "today" was picked, leaving a
+			// mostly empty seven-row grid that read as a broken chart.
 			const days = data.activity ?? data.days ?? [];
 			const byDay = new Map(days.map((d) => [d.day, d.tokens ?? 0]));
-			const max = Math.max(...byDay.values(), 1);
+			const levelAt = makeLevelScale([...byDay.values()]);
 
-			// Always the same shape: whole weeks ending today, Monday first, with
-			// idle days present as level zero rather than absent.
+			// Per-day model rows, grouped once rather than on every hover.
+			const modelsByDay = react.useMemo(() => {
+				const out = new Map();
+				for (const row of data.activityModels ?? []) {
+					if (!out.has(row.day)) out.set(row.day, []);
+					out.get(row.day).push(row);
+				}
+				for (const rows of out.values()) rows.sort((a, b) => (b.tokens ?? 0) - (a.tokens ?? 0));
+				return out;
+			}, [data.activityModels]);
+
+			// Whole weeks ending today, Monday first, idle days present as level
+			// zero rather than absent.
 			const today = new Date();
 			today.setHours(0, 0, 0, 0);
-			const endPad = 6 - ((today.getDay() + 6) % 7);
 			const cells = [];
 			for (let back = ACTIVITY_DAYS - 1; back >= 0; back--) {
 				const date = new Date(today.getTime() - back * 86_400_000);
 				const key = localDayKey(date);
-				cells.push({ day: key, tokens: byDay.get(key) ?? 0 });
+				cells.push({ day: key, date, tokens: byDay.get(key) ?? 0 });
 			}
-			// Lead-in so the first column starts on a Monday.
-			const startPad = (new Date(today.getTime() - (ACTIVITY_DAYS - 1) * 86_400_000).getDay() + 6) % 7;
+			const startPad = (cells[0].date.getDay() + 6) % 7;
 			for (let i = 0; i < startPad; i++) cells.unshift(null);
+			const endPad = (7 - (cells.length % 7)) % 7;
 			for (let i = 0; i < endPad; i++) cells.push(null);
+
+			// A month label over the column where that month starts. Anything
+			// finer collides at 12px per week.
+			const weeks = cells.length / 7;
+			const monthLabels = [];
+			let lastMonth = -1;
+			for (let w = 0; w < weeks; w++) {
+				const first = cells.slice(w * 7, w * 7 + 7).find(Boolean);
+				const month = first === undefined ? lastMonth : first.date.getMonth();
+				monthLabels.push(month !== lastMonth && first !== undefined ? translate(`month.${month}`) : "");
+				if (first !== undefined) lastMonth = month;
+			}
+
+			// Land on the newest week; the year runs off the left edge otherwise.
+			react.useEffect(() => {
+				const el = scroller.current;
+				if (el) el.scrollLeft = el.scrollWidth;
+			}, [days.length]);
+
+			const show = (cell) => (event) => {
+				const box = event.currentTarget.getBoundingClientRect();
+				setHover({ cell, x: box.left + box.width / 2, y: box.top });
+			};
 
 			return jsxs("div", {
 				children: [
-					jsx("div", {
+					jsxs("div", {
 						className: S.strip,
-						children: jsx("div", {
-							className: S.stripGrid,
-							children: cells.map((cell, i) =>
-								cell === null
-									? jsx("span", { className: S.cellPad }, `p${i}`)
-									: jsx(
-											"span",
-											{
-												className: S.cell,
-												"data-l": String(levelOf(cell.tokens, max)),
-												title: `${cell.day} · ${fmt(cell.tokens)}`
-											},
-											cell.day
+						ref: scroller,
+						children: [
+							jsx("div", {
+								className: S.weekdays,
+								// Two of seven, like GitHub: seven labels at 12px is noise.
+								children: [0, 1, 2, 3, 4, 5, 6].map((d) =>
+									jsx("span", { className: S.weekday, children: d === 1 || d === 4 ? translate(`weekday.${d}`) : "" }, d)
+								)
+							}),
+							jsxs("div", {
+								className: S.stripCols,
+								children: [
+									jsx("div", {
+										className: S.months,
+										style: { gridTemplateColumns: `repeat(${weeks}, 12px)` },
+										children: monthLabels.map((label, i) => jsx("span", { className: S.month, children: label }, i))
+									}),
+									jsx("div", {
+										className: S.stripGrid,
+										children: cells.map((cell, i) =>
+											cell === null
+												? jsx("span", { className: S.cellPad }, `p${i}`)
+												: jsx(
+														"span",
+														{
+															className: S.cell,
+															"data-l": String(levelAt(cell.tokens)),
+															onMouseEnter: show(cell),
+															onMouseLeave: () => setHover(null)
+														},
+														cell.day
+													)
 										)
-							)
-						})
+									})
+								]
+							})
+						]
 					}),
 					jsxs("div", {
 						className: S.legend,
 						children: [
 							jsx("span", { children: translate("activity.less") }),
 							[0, 1, 2, 3, 4].map((level) =>
-								jsx(
-									"span",
-									{
-										className: S.legendSwatch,
-										style: { background: `var(--tkl-level-${level})` }
-									},
-									level
-								)
+								jsx("span", { className: S.legendSwatch, style: { background: `var(--tkl-level-${level})` } }, level)
 							),
 							jsx("span", { children: translate("activity.more") })
 						]
-					})
+					}),
+					hover === null
+						? null
+						: jsx(DayTip, {
+								cell: hover.cell,
+								x: hover.x,
+								y: hover.y,
+								level: levelAt(hover.cell.tokens),
+								models: modelsByDay.get(hover.cell.day) ?? [],
+								translate
+							})
 				]
 			});
+		}
+
+		/**
+		 * What a day was made of.
+		 *
+		 * A `title` attribute answers "how much" after a second of waiting and
+		 * nothing else. The per-model split is already in the payload, so showing
+		 * it costs a hover handler and turns the strip from decoration into
+		 * something worth pointing at.
+		 */
+		function DayTip({ cell, x, y, level, models, translate }) {
+			const total = cell.tokens ?? 0;
+			// Clamped so a cell near either edge does not push the card off-screen.
+			const left = Math.min(Math.max(x - 110, 8), Math.max(8, window.innerWidth - 258));
+			return jsxs("div", {
+				className: S.tip,
+				style: { left: `${left}px`, top: `${Math.max(8, y - 8)}px`, transform: "translateY(-100%)" },
+				children: [
+					jsxs("div", {
+						className: S.tipHead,
+						children: [
+							jsx("span", { className: S.tipDate, children: cell.day }),
+							jsx("span", { className: S.tipLevel, children: translate("activity.level", { level }) })
+						]
+					}),
+					jsxs("div", {
+						className: S.tipTotal,
+						children: [fmt(total), jsx("span", { className: S.tipUnit, children: "tokens" })]
+					}),
+					models.length === 0
+						? jsx("p", { className: S.tipQuiet, children: translate("activity.quiet") })
+						: jsx("div", {
+								className: S.tipModels,
+								children: models.slice(0, 4).map((row) =>
+									jsxs(
+										"div",
+										{
+											className: S.tipRow,
+											children: [
+												jsxs("div", {
+													className: S.tipRowHead,
+													children: [
+														jsx("span", { className: S.tipName, title: row.model, children: row.model }),
+														jsx("span", { className: S.tipValue, children: fmt(row.tokens) }),
+														jsx("span", { className: S.tipPct, children: `${Math.round(share(row.tokens, total))}%` })
+													]
+												}),
+												jsx("div", {
+													className: S.tipBar,
+													children: jsx("div", {
+														className: S.tipBarFill,
+														style: { width: `${Math.max(2, share(row.tokens, total))}%` }
+													})
+												})
+											]
+										},
+										row.model
+									)
+								)
+							})
+				]
+			});
+		}
+
+		/**
+		 * Five buckets by QUANTILE of the days that had any usage.
+		 *
+		 * Scaling to the maximum was the obvious choice and the wrong one: one
+		 * outlier day flattens every other day to level 1, so a year of steady
+		 * work renders as a single bright square in a pale field. Median / 75th /
+		 * 90th spreads the ramp across the distribution actually present, which is
+		 * what makes a heatmap readable.
+		 *
+		 * @param values - every day's total in the window, zeros included.
+		 * @returns a function from a day's total to 0-4.
+		 */
+		function makeLevelScale(values) {
+			const active = values.filter((v) => v > 0).sort((a, b) => a - b);
+			if (active.length === 0) return () => 0;
+
+			// Quantiles need a distribution to describe. With only a handful of
+			// distinct totals they all collapse onto the same threshold and every
+			// active day comes out level 1 — a single busy day rendering as the
+			// palest possible green, which reads as "nothing happened". Below four
+			// distinct values, rank them instead.
+			const distinct = [...new Set(active)];
+			if (distinct.length < 4) {
+				const rank = new Map(distinct.map((v, i) => [v, distinct.length === 1 ? 4 : 1 + Math.round((i * 3) / (distinct.length - 1))]));
+				return (value) => (value > 0 ? (rank.get(value) ?? 4) : 0);
+			}
+
+			const at = (q) => {
+				const pos = (active.length - 1) * q;
+				const base = Math.floor(pos);
+				const rest = pos - base;
+				const left = active[base];
+				const right = active[Math.min(active.length - 1, base + 1)];
+				return left + (right - left) * rest;
+			};
+			const t1 = at(0.5);
+			const t2 = at(0.75);
+			const t3 = at(0.9);
+			return (value) => {
+				if (!(value > 0)) return 0;
+				if (value <= t1) return 1;
+				if (value <= t2) return 2;
+				if (value <= t3) return 3;
+				return 4;
+			};
 		}
 
 		/**
@@ -606,16 +825,6 @@ window.__ModuleLoader__.load({
 			const month = String(date.getMonth() + 1).padStart(2, "0");
 			const day = String(date.getDate()).padStart(2, "0");
 			return `${date.getFullYear()}-${month}-${day}`;
-		}
-
-		/** Five steps, and only a genuinely idle day is level zero. */
-		function levelOf(tokens, max) {
-			if (!(tokens > 0)) return 0;
-			const ratio = tokens / max;
-			if (ratio > 0.75) return 4;
-			if (ratio > 0.5) return 3;
-			if (ratio > 0.25) return 2;
-			return 1;
 		}
 
 		const MODEL_COLUMNS = [
@@ -934,7 +1143,7 @@ window.__ModuleLoader__.load({
 			"section.balance": "DeepSeek 官方余额",
 			"section.usage": "Token 用量",
 			"section.sites": "中转站分布",
-			"section.activity": "近 12 周活跃度",
+			"section.activity": "活跃度",
 			"section.models": "模型",
 			"filter.clear": "只看 {site} ×",
 			"caption.requests": "{n} 请求",
@@ -943,6 +1152,27 @@ window.__ModuleLoader__.load({
 			"sites.direct": "直连/官方",
 			"sites.none": "没有发现中转站——直连的话这就是全部。",
 			"activity.none": "这个区间内没有活跃记录。",
+			"activity.level": "等级 {level}",
+			"activity.quiet": "这天没有跑过请求。",
+			"month.0": "1月",
+			"month.1": "2月",
+			"month.2": "3月",
+			"month.3": "4月",
+			"month.4": "5月",
+			"month.5": "6月",
+			"month.6": "7月",
+			"month.7": "8月",
+			"month.8": "9月",
+			"month.9": "10月",
+			"month.10": "11月",
+			"month.11": "12月",
+			"weekday.0": "一",
+			"weekday.1": "二",
+			"weekday.2": "三",
+			"weekday.3": "四",
+			"weekday.4": "五",
+			"weekday.5": "六",
+			"weekday.6": "日",
 			"activity.less": "少",
 			"activity.more": "多",
 			"table.model": "模型",
@@ -977,7 +1207,7 @@ window.__ModuleLoader__.load({
 			"section.balance": "DeepSeek account balance",
 			"section.usage": "Token usage",
 			"section.sites": "By relay site",
-			"section.activity": "Last 12 weeks",
+			"section.activity": "Activity",
 			"section.models": "Models",
 			"filter.clear": "{site} only ×",
 			"caption.requests": "{n} requests",
@@ -986,6 +1216,27 @@ window.__ModuleLoader__.load({
 			"sites.direct": "Direct",
 			"sites.none": "No relay sites found — if you go direct, this is all of it.",
 			"activity.none": "No activity in this range.",
+			"activity.level": "Level {level}",
+			"activity.quiet": "Nothing ran this day.",
+			"month.0": "Jan",
+			"month.1": "Feb",
+			"month.2": "Mar",
+			"month.3": "Apr",
+			"month.4": "May",
+			"month.5": "Jun",
+			"month.6": "Jul",
+			"month.7": "Aug",
+			"month.8": "Sep",
+			"month.9": "Oct",
+			"month.10": "Nov",
+			"month.11": "Dec",
+			"weekday.0": "Mon",
+			"weekday.1": "Tue",
+			"weekday.2": "Wed",
+			"weekday.3": "Thu",
+			"weekday.4": "Fri",
+			"weekday.5": "Sat",
+			"weekday.6": "Sun",
 			"activity.less": "Less",
 			"activity.more": "More",
 			"table.model": "Model",
@@ -1072,7 +1323,8 @@ window.__ModuleLoader__.load({
 		exports.Footer = Footer;
 		exports.translateWith = translateWith;
 		exports.buildQuery = buildQuery;
-		exports.levelOf = levelOf;
+		exports.makeLevelScale = makeLevelScale;
+		exports.DayTip = DayTip;
 		exports.localDayKey = localDayKey;
 		exports.fmtMoney = fmtMoney;
 		exports.fmtHit = fmtHit;

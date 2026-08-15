@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
 	BASE_PATH,
+	dailyModels,
 	USAGE_PATH,
 	hostNameOf,
 	isLoopbackAddress,
@@ -260,4 +261,33 @@ test("every payload reports the installed version", async () => {
 	} finally {
 		store.close();
 	}
+});
+
+test("one model reached through two relays is one row, not two halves", () => {
+	// byRoute is keyed by (day, site, provider, model), so the day tooltip listed
+	// the same model twice — each showing half its real total and half its real
+	// share. Seen in a browser, not in a test.
+	const merged = dailyModels([
+		{ day: "2026-08-14", site: "a.example", model: "gpt", tokens: 64552 },
+		{ day: "2026-08-14", site: "direct", model: "gpt", tokens: 10170 },
+		{ day: "2026-08-14", site: "direct", model: "claude", tokens: 0 },
+		{ day: "2026-08-13", site: "direct", model: "gpt", tokens: 5 }
+	]);
+	assert.deepEqual(merged, [
+		{ day: "2026-08-13", model: "gpt", tokens: 5 },
+		{ day: "2026-08-14", model: "gpt", tokens: 74722 }
+	]);
+});
+
+test("a model that ran nothing that day is not part of that day's breakdown", () => {
+	assert.deepEqual(dailyModels([{ day: "d", model: "idle", tokens: 0 }]), []);
+});
+
+test("rows are ordered by day, then by size within the day", () => {
+	const rows = dailyModels([
+		{ day: "2026-08-14", model: "small", tokens: 1 },
+		{ day: "2026-08-14", model: "big", tokens: 100 },
+		{ day: "2026-08-12", model: "mid", tokens: 50 }
+	]);
+	assert.deepEqual(rows.map((r) => r.model), ["mid", "big", "small"]);
 });

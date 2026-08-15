@@ -85,6 +85,7 @@ async function loadBundle(options = {}) {
 		},
 		useEffect: (fn) => void effects.push(fn),
 		useCallback: (fn) => fn,
+		useMemo: (fn) => fn(),
 		useRef: (initial) => ({ current: initial })
 	};
 
@@ -389,6 +390,10 @@ test("the activity strip keeps its shape whatever range is selected", async () =
 	// Whole weeks: padding either side so columns line up on a weekday.
 	const total = cells.length + findAll(tree, "tkl_cellPad").length;
 	assert.equal(total % 7, 0, `grid is not whole weeks: ${total}`);
+
+	// Month labels over the column each month begins in, and only there.
+	const months = findAll(tree, "tkl_month").map((m) => m.props.children).filter(Boolean);
+	assert.ok(months.length >= 11, `a year should label about twelve months, got ${months.length}`);
 });
 
 test("the strip reads its own window, not the selected range's days", async () => {
@@ -402,11 +407,78 @@ test("the strip reads its own window, not the selected range's days", async () =
 	assert.equal(findAll(tree, "tkl_cell").length, exports.ACTIVITY_DAYS);
 });
 
-test("an idle day is level zero and a barely-used one is not", async () => {
+test("hovering a day shows what ran, not just how much", async () => {
+	// A `title` attribute answers "how much" after a second of waiting and
+	// nothing else, which is what the strip used to do.
+	const { exports, render } = await loadBundle();
+	const text = textOf(
+		render(exports.DayTip, {
+			cell: { day: "2026-08-14", tokens: 47085 },
+			x: 200,
+			y: 300,
+			level: 4,
+			models: [
+				{ model: "deepseek-v4-pro", tokens: 40000 },
+				{ model: "gpt-5.6-sol", tokens: 7085 }
+			],
+			translate: T
+		})
+	);
+	assert.ok(text.includes("2026-08-14"));
+	assert.ok(text.includes("47,085"));
+	assert.ok(text.includes("deepseek-v4-pro"));
+	assert.ok(text.includes("85%"), "each model's share of that day");
+	assert.ok(text.includes("activity.level:4"));
+});
+
+test("an idle day says so rather than showing an empty breakdown", async () => {
+	const { exports, render } = await loadBundle();
+	const text = textOf(
+		render(exports.DayTip, { cell: { day: "2026-05-12", tokens: 0 }, x: 10, y: 10, level: 0, models: [], translate: T })
+	);
+	assert.ok(text.includes("activity.quiet"));
+	assert.ok(text.includes("0"));
+});
+
+test("the tooltip stays on screen at either edge", async () => {
+	const { exports, render } = await loadBundle();
+	globalThis.window.innerWidth = 500;
+	const leftEdge = render(exports.DayTip, { cell: { day: "d", tokens: 1 }, x: 4, y: 100, level: 1, models: [], translate: T });
+	const rightEdge = render(exports.DayTip, { cell: { day: "d", tokens: 1 }, x: 496, y: 100, level: 1, models: [], translate: T });
+	assert.equal(leftEdge.props.style.left, "8px", "clamped away from the left edge");
+	assert.equal(rightEdge.props.style.left, "242px", "clamped away from the right edge");
+});
+
+test("levels come from quantiles, so one spike does not flatten the rest", async () => {
+	// Scaling to the maximum was the obvious choice and the wrong one: a single
+	// outlier drives every other day to level 1, and a year of steady work
+	// renders as one bright square in a pale field.
 	const { exports } = await loadBundle();
-	assert.equal(exports.levelOf(0, 100), 0);
-	assert.equal(exports.levelOf(1, 100), 1, "any usage at all must be visible");
-	assert.equal(exports.levelOf(100, 100), 4);
+	const steady = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+	const withSpike = exports.makeLevelScale([...steady, 1_000_000]);
+	// Median 60, 75th 85, 90th 100 — so the ordinary days still spread across
+	// the ramp even with a spike ten thousand times larger in the same window.
+	assert.equal(withSpike(10), 1, "the quiet end stays at the bottom");
+	assert.equal(withSpike(60), 1, "the median is the top of level 1");
+	assert.equal(withSpike(70), 2);
+	assert.equal(withSpike(90), 3);
+	assert.equal(withSpike(1_000_000), 4);
+	assert.equal(new Set(steady.map(withSpike)).size, 3, "three distinct levels among the ordinary days");
+
+	// Guards the guard: scaling to the maximum really would collapse all of them.
+	const byRatio = (v) => (v / 1_000_000 > 0.25 ? 2 : 1);
+	assert.equal(new Set(steady.map(byRatio)).size, 1, "ratio-to-max gives every ordinary day the same level");
+});
+
+test("an idle day is level zero, and any usage at all is visible", async () => {
+	const { exports } = await loadBundle();
+	const scale = exports.makeLevelScale([5, 50, 500]);
+	assert.equal(scale(0), 0);
+	assert.equal(scale(5), 1, "the smallest active day must not read as idle");
+	assert.equal(scale(500), 4);
+	// A window with no activity at all must not divide by anything.
+	assert.equal(exports.makeLevelScale([])(0), 0);
+	assert.equal(exports.makeLevelScale([0, 0])(0), 0);
 });
 
 test("the model table sorts, and reverses on a second click of the same column", async () => {
@@ -611,4 +683,24 @@ test("the footer-action container is made to wrap, or a second plugin lands off-
 	// class, which is not ours to depend on.
 	assert.equal(/hHd-|_footerActions_/.test(css), false, "must not target the host's hashed class");
 	assert.match(css, /\.tkl_layer\{flex:0 0 100%/, "and the layer must claim a full row of its own");
+});
+
+test("a lone busy day is not rendered as the palest green", async () => {
+	// Quantiles need a distribution. With one distinct total every threshold is
+	// that same number, so the only active day in the window came out level 1 —
+	// which reads as "nothing happened" on the one day something did.
+	const { exports } = await loadBundle();
+	assert.equal(exports.makeLevelScale([74722])(74722), 4);
+
+	// Two and three distinct values rank rather than collapse.
+	const two = exports.makeLevelScale([100, 900]);
+	assert.equal(two(100), 1);
+	assert.equal(two(900), 4);
+	const three = exports.makeLevelScale([10, 100, 900]);
+	assert.deepEqual([three(10), three(100), three(900)], [1, 3, 4]);
+
+	// Four or more hands back to the quantile path.
+	const many = exports.makeLevelScale([1, 2, 3, 4, 5, 6, 7, 8]);
+	assert.equal(many(1), 1);
+	assert.equal(many(8), 4);
 });
