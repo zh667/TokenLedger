@@ -501,15 +501,72 @@ test("the model table carries request counts, so a hit rate can be read", async 
 	assert.ok(text.includes("27,492"));
 });
 
-test("a relay-only deployment gets one honest line, not an empty balance card", async () => {
+test("a relay whose software is unrecognised gets one honest line, not an empty card", async () => {
 	const { exports, render } = await loadBundle();
 	const text = textOf(
 		render(exports.BalanceCard, {
-			state: { status: "ready", data: { ok: true, supported: false, reason: "no-official-route" } },
+			state: { status: "ready", data: { ok: true, supported: false, reason: "unknown-software" } },
 			translate: T
 		})
 	);
-	assert.equal(text.trim(), "balance.noRoute");
+	assert.equal(text.trim(), "balance.unknownSoftware");
+});
+
+test("a relay balance renders through the same card as the vendor's", async () => {
+	// Every scheme returns one shape, so New API and Sub2API need no branch of
+	// their own — the point of doing the normalising on the host.
+	const { exports, render } = await loadBundle();
+	const newapi = textOf(
+		render(exports.BalanceCard, {
+			state: {
+				status: "ready",
+				data: {
+					ok: true,
+					displayName: "api.9zyx.xyz",
+					scheme: "newapi",
+					supported: true,
+					fetched: true,
+					isAvailable: true,
+					currency: "CNY",
+					total: 16
+				}
+			},
+			translate: T
+		})
+	);
+	assert.ok(newapi.includes("api.9zyx.xyz"));
+	assert.ok(newapi.includes("New API"), "the software is named, not just the host");
+	assert.ok(newapi.includes("¥16.00"));
+
+	// A site that publishes no unit price still has a true answer to give.
+	const quotaOnly = textOf(
+		render(exports.BalanceCard, {
+			state: {
+				status: "ready",
+				data: { ok: true, displayName: "r.example", scheme: "newapi", supported: true, fetched: true, quota: { available: 4000000 } }
+			},
+			translate: T
+		})
+	);
+	assert.ok(quotaOnly.includes("balance.quota:4,000,000"));
+	assert.equal(quotaOnly.includes("¥"), false, "money must not be invented from an unknown scale");
+});
+
+test("the picker only appears when there is a choice to make", async () => {
+	const { exports, render } = await loadBundle();
+	assert.equal(render(exports.AccountPicker, { accounts: [], value: undefined, onChange() {}, translate: T }), null);
+	assert.equal(
+		render(exports.AccountPicker, { accounts: [{ id: "a", displayName: "A" }], value: "a", onChange() {}, translate: T }),
+		null,
+		"one account is not a choice"
+	);
+	const two = render(exports.AccountPicker, {
+		accounts: [{ id: "a", displayName: "DeepSeek" }, { id: "b", displayName: "api.9zyx.xyz" }],
+		value: "b",
+		onChange() {},
+		translate: T
+	});
+	assert.ok(textOf(two).includes("api.9zyx.xyz"));
 });
 
 test("a balance that could not be read never becomes an error banner", async () => {
@@ -521,12 +578,16 @@ test("a real balance renders its amount and currency", async () => {
 	const { exports, render } = await loadBundle();
 	const text = textOf(
 		render(exports.BalanceCard, {
-			state: { status: "ready", data: { ok: true, supported: true, fetched: true, isAvailable: true, currency: "CNY", total: "36.44" } },
+			state: {
+				status: "ready",
+				data: { ok: true, displayName: "DeepSeek", scheme: "deepseek", supported: true, fetched: true, isAvailable: true, currency: "CNY", total: 36.44, granted: 5 }
+			},
 			translate: T
 		})
 	);
 	assert.ok(text.includes("¥36.44"));
 	assert.ok(text.includes("balance.active"));
+	assert.ok(text.includes("balance.granted:¥5.00"), "granted credit expires and top-ups do not");
 });
 
 test("unattributed rows are surfaced on the page, not only in a command", async () => {
@@ -611,7 +672,7 @@ test("a served balance request with no key names the missing key, rather than re
 			translate: T
 		})
 	);
-	assert.equal(text.trim(), "balance.noKey");
+	assert.ok(text.trim().startsWith("balance.noKey"), text);
 });
 
 test("the bundle announces each lifecycle step it reaches", async () => {

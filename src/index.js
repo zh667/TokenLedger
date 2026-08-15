@@ -94,4 +94,4 @@ export { discoverFromContext, discoverSites, mergeSites, readAtPath } from "./di
 
 export { BASE_PATH, USAGE_PATH, BALANCE_PATH, parseQuery, registerRoutes, screenRequest, usagePayload } from "./http.js";
 
-export { createBalanceReader, isOfficialDeepSeek, parseBalance, readDeepSeekBalance } from "./balance.js";
+export { SCHEMES, createBalanceReader, isOfficialDeepSeek, listAccounts, readBalance } from "./balance.js";

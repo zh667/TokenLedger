@@ -28,7 +28,7 @@
 import { applyUsageDelta, dayKey } from "./usage.js";
 import { RelaySiteRegistry, SITE_TYPES, createSiteResolver, domainOf } from "./relay-sites.js";
 import { discoverFromContext, mergeSites, withKnownSoftware } from "./discovery.js";
-import { createBalanceReader } from "./balance.js";
+import { createBalanceReader, listAccounts } from "./balance.js";
 import { registerRoutes } from "./http.js";
 import { detectRelaySoftware } from "./adapters/detect.js";
 import { LedgerStore } from "./store.js";
@@ -860,7 +860,14 @@ export function apply(ctx, userConfig = {}) {
 			sweep: runSweep,
 			priced: (range, site) =>
 				config.rates === undefined ? null : priceWithConfiguredRates(store, range, site, config.rates),
-			balance: createBalanceReader(ctx),
+			accounts: () => listAccounts(ctx, { softwareOf }),
+			balance: createBalanceReader(ctx, {
+				softwareOf,
+				// A lazily detected relay program is remembered, so the probe
+				// happens once per site rather than once per balance read.
+				learnSoftware: (host, software) => softwareOf.set(host, software),
+				detect
+			}),
 			logger
 		});
 		if (!served) logger?.info?.("tokenledger: no web server in this composition; the panel will not be served");

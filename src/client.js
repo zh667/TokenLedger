@@ -145,9 +145,13 @@ window.__ModuleLoader__.load({
 			// -- sections ----------------------------------------------------------
 			".tkl_section{margin-top:14px}",
 			".tkl_section:first-child{margin-top:0}",
-			".tkl_sectionTitle{color:var(--dsw-alias-label-tertiary);margin:0 0 6px;font-size:11px;line-height:16px;font-weight:500}",
+			".tkl_sectionTitle{color:var(--dsw-alias-label-tertiary);margin:0 0 6px;font-size:11px;line-height:16px;font-weight:500;display:flex;align-items:center;gap:4px;min-height:18px}",
 			".tkl_filter{color:var(--dsw-alias-label-secondary);cursor:pointer;background:var(--dsw-alias-interactive-bg-active);border:none;border-radius:999px;margin-left:6px;padding:1px 8px;font:inherit;font-size:11px;line-height:16px}",
 			".tkl_filter:hover{color:var(--dsw-alias-label-primary)}",
+			".tkl_picker{display:inline-flex;align-items:center;gap:5px;margin-left:auto}",
+			".tkl_pickerLabel{color:var(--dsw-alias-label-caption);font-size:10px}",
+			".tkl_select{color:var(--dsw-alias-label-secondary);background:0 0;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--tkl-radius-xs);padding:1px 4px;font:inherit;font-size:11px;line-height:16px;max-width:150px}",
+			".tkl_select:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}",
 
 			// -- stat row ----------------------------------------------------------
 			".tkl_stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}",
@@ -273,6 +277,9 @@ window.__ModuleLoader__.load({
 			section: "tkl_section",
 			sectionTitle: "tkl_sectionTitle",
 			filter: "tkl_filter",
+			picker: "tkl_picker",
+			pickerLabel: "tkl_pickerLabel",
+			select: "tkl_select",
 			stats: "tkl_stats",
 			stat: "tkl_stat",
 			statValue: "tkl_statValue",
@@ -431,14 +438,15 @@ window.__ModuleLoader__.load({
 		 * network: a slow or unreachable balance API must not hold up figures that
 		 * are already on disk.
 		 */
-		function useBalance(open, nonce) {
+		function useBalance(open, account, nonce) {
 			const [state, setState] = react.useState({ status: "idle" });
 
 			react.useEffect(() => {
 				if (!open) return undefined;
 				const controller = new AbortController();
 				setState({ status: "loading" });
-				fetchJson(BALANCE_PATH, controller.signal).then(
+				const query = account === undefined ? "" : `?account=${encodeURIComponent(account)}`;
+				fetchJson(BALANCE_PATH + query, controller.signal).then(
 					(data) => {
 						if (!controller.signal.aborted) setState({ status: "ready", data });
 					},
@@ -449,7 +457,7 @@ window.__ModuleLoader__.load({
 					}
 				);
 				return () => controller.abort();
-			}, [open, nonce]);
+			}, [open, account, nonce]);
 
 			return state;
 		}
@@ -905,34 +913,93 @@ window.__ModuleLoader__.load({
 		 * empty card: a relay has no balance endpoint of this shape, and nothing
 		 * is wrong when it says so.
 		 */
+		/**
+		 * Which account the balance card is showing.
+		 *
+		 * A picker rather than one card per account: a user with several relays
+		 * would otherwise get a stack of cards pushing the usage below the fold,
+		 * and only one of them is being looked at.
+		 */
+		function AccountPicker({ accounts, value, onChange, translate }) {
+			if (accounts.length <= 1) return null;
+			return jsxs("label", {
+				className: S.picker,
+				children: [
+					jsx("span", { className: S.pickerLabel, children: translate("balance.account") }),
+					jsx("select", {
+						className: S.select,
+						value: value ?? accounts[0].id,
+						onChange: (event) => onChange(event.target.value),
+						children: accounts.map((a) =>
+							jsx("option", { value: a.id, children: a.displayName }, a.id)
+						)
+					})
+				]
+			});
+		}
+
+		/**
+		 * One account's balance, whatever software serves it.
+		 *
+		 * Every scheme returns the same shape, so this renders DeepSeek, New API
+		 * and Sub2API without branching on the vendor — the differences that do
+		 * matter (an unlimited key, a plan name, a raw quota where the site
+		 * publishes no unit price) are extra lines, not different cards.
+		 */
 		function BalanceCard({ state, translate }) {
 			if (state.status === "loading") return jsx("div", { className: `${S.skel} ${S.skelStat}` });
 			if (state.status !== "ready") return null;
 			const balance = state.data;
+
 			if (balance.supported === false) {
-				return jsx("p", { className: S.note, children: translate(`balance.${balance.reason === "no-official-route" ? "noRoute" : "unavailable"}`) });
+				const key =
+					balance.reason === "unknown-software"
+						? "balance.unknownSoftware"
+						: balance.reason === "unknown-account"
+							? "balance.unknownAccount"
+							: "balance.unavailable";
+				return jsx("p", { className: S.note, children: translate(key) });
 			}
 			if (balance.fetched !== true) {
 				return jsx("p", {
 					className: S.note,
-					children: translate(balance.reason === "no-credential" ? "balance.noKey" : "balance.failed")
+					children: translate(balance.reason === "no-credential" ? "balance.noKey" : "balance.failed", {
+						reason: balance.reason ?? ""
+					})
 				});
 			}
-			const amount = Number.parseFloat(balance.total);
-			const granted = Number.parseFloat(balance.granted);
+
+			// Money when the account reports it; the raw quota when a relay
+			// publishes no unit price, because that is still a true answer.
+			const amount =
+				typeof balance.total === "number"
+					? fmtMoney(balance.total, balance.currency)
+					: balance.quota?.available !== undefined
+						? translate("balance.quota", { n: fmt(balance.quota.available) })
+						: "—";
+
+			const notes = [];
+			if (balance.unlimited === true) notes.push(translate("balance.unlimited"));
+			if (typeof balance.granted === "number" && balance.granted > 0) {
+				notes.push(translate("balance.granted", { amount: fmtMoney(balance.granted, balance.currency) }));
+			}
+			if (typeof balance.plan === "string" && balance.plan !== "") {
+				notes.push(translate("balance.plan", { plan: balance.plan }));
+			}
+
 			return jsxs("div", {
 				className: S.balance,
 				children: [
 					jsxs("div", {
 						className: S.balanceMain,
 						children: [
-							// Name the vendor. "Official balance" answers nothing on a
-							// panel that also reports relays — official whose?
-							jsx("div", { className: S.balanceWho, children: translate("balance.vendor") }),
+							// Name the vendor AND the software. "Official balance"
+							// answers nothing on a panel that also reports relays.
 							jsx("div", {
-								className: S.balanceAmount,
-								children: Number.isFinite(amount) ? fmtMoney(amount, balance.currency) : "—"
-							})
+								className: S.balanceWho,
+								children: `${balance.displayName ?? ""}${balance.scheme === undefined ? "" : ` · ${SCHEME_LABELS[balance.scheme] ?? balance.scheme}`}`
+							}),
+							jsx("div", { className: S.balanceAmount, children: amount })
 						]
 					}),
 					jsxs("div", {
@@ -942,16 +1009,15 @@ window.__ModuleLoader__.load({
 								className: balance.isAvailable === true ? S.balanceOk : S.balanceBad,
 								children: balance.isAvailable === true ? translate("balance.active") : translate("balance.inactive")
 							}),
-							// Granted credit expires and top-ups do not, so a total that
-							// hides the split can look healthier than the account is.
-							Number.isFinite(granted) && granted > 0
-								? jsx("div", { children: translate("balance.granted", { amount: fmtMoney(granted, balance.currency) }) })
-								: null
+							notes.length === 0 ? null : jsx("div", { children: notes.join(" · " ) })
 						]
 					})
 				]
 			});
 		}
+
+		/** How each relay program is named on the card. */
+		const SCHEME_LABELS = { deepseek: "API 余额", newapi: "New API", sub2api: "Sub2API" };
 
 		/** Index health. A stale or lossy index must say so on the page. */
 		function Footer({ data, translate }) {
@@ -984,7 +1050,7 @@ window.__ModuleLoader__.load({
 		}
 
 		/** The panel body: every section, each complete. */
-		function Body({ state, balance, site, onSelect, range, onRange, translate, onRetry }) {
+		function Body({ state, balance, site, onSelect, range, onRange, account, onAccount, translate, onRetry }) {
 			if (state.status === "error") {
 				return jsxs("div", {
 					children: [
@@ -1001,7 +1067,16 @@ window.__ModuleLoader__.load({
 
 			return jsxs("div", {
 				children: [
-					jsx(Section, { title: translate("section.balance"), children: jsx(BalanceCard, { state: balance, translate }) }),
+					jsx(Section, {
+						title: translate("section.balance"),
+						action: jsx(AccountPicker, {
+							accounts: data.accounts ?? [],
+							value: account,
+							onChange: onAccount,
+							translate
+						}),
+						children: jsx(BalanceCard, { state: balance, translate })
+					}),
 					jsx(Section, {
 						title: translate("section.usage"),
 						action: site === undefined
@@ -1043,10 +1118,11 @@ window.__ModuleLoader__.load({
 			const [open, setOpen] = react.useState(false);
 			const [range, setRange] = react.useState("all");
 			const [site, setSite] = react.useState(undefined);
+			const [account, setAccount] = react.useState(undefined);
 			const [nonce, setNonce] = react.useState(0);
 			const days = (RANGES.find((r) => r.id === range) ?? RANGES[2]).days();
 			const state = useUsage(open, days, site, nonce);
-			const balance = useBalance(open, nonce);
+			const balance = useBalance(open, account, nonce);
 			const reload = () => setNonce((n) => n + 1);
 			const translate = translateWith(t);
 
@@ -1119,7 +1195,7 @@ window.__ModuleLoader__.load({
 								}),
 								jsx("div", {
 									className: S.body,
-									children: jsx(Body, { state, balance, site, onSelect: setSite, range, onRange: setRange, translate, onRetry: reload })
+									children: jsx(Body, { state, balance, site, onSelect: setSite, range, onRange: setRange, account, onAccount: setAccount, translate, onRetry: reload })
 								})
 							]
 						})
@@ -1140,7 +1216,7 @@ window.__ModuleLoader__.load({
 			"state.loading": "读取中…",
 			"state.empty": "这个区间内没有记录到任何用量。",
 			"error.load": "读不到用量数据。",
-			"section.balance": "DeepSeek 官方余额",
+			"section.balance": "余额",
 			"section.usage": "Token 用量",
 			"section.sites": "中转站分布",
 			"section.activity": "活跃度",
@@ -1182,13 +1258,18 @@ window.__ModuleLoader__.load({
 			"table.output": "输出",
 			"table.cost": "估算",
 			"table.none": "没有模型记录。",
-			"balance.vendor": "DeepSeek · API 余额",
+			"balance.account": "账户",
+			"balance.plan": "套餐 {plan}",
+			"balance.unlimited": "不限额度",
+			"balance.quota": "{n} 额度",
+			"balance.unknownSoftware": "认不出这个中转站跑的是什么程序，读不了余额。",
+			"balance.unknownAccount": "找不到这个账户。",
+			"balance.failed": "余额读取失败（{reason}）。",
+			"balance.noKey": "这条路由没有配置密钥，查不了余额。",
 			"balance.active": "账户可用",
 			"balance.inactive": "账户不可用",
 			"balance.granted": "其中赠送 {amount}",
-			"balance.noKey": "这条 DeepSeek 官方路由没有配置密钥，查不了余额。",
 			"balance.noRoute": "没有直连 DeepSeek 官方的路由——中转站没有余额接口。",
-			"balance.failed": "DeepSeek 余额读取失败。",
 			"balance.unavailable": "这个部署问不到 provider 配置。",
 			"footer.updated": "索引更新于 {at}",
 			"footer.unattributed": "{n} 行归因不上"
@@ -1204,7 +1285,7 @@ window.__ModuleLoader__.load({
 			"state.loading": "Loading…",
 			"state.empty": "No usage recorded in this range.",
 			"error.load": "Could not read usage data.",
-			"section.balance": "DeepSeek account balance",
+			"section.balance": "Balance",
 			"section.usage": "Token usage",
 			"section.sites": "By relay site",
 			"section.activity": "Activity",
@@ -1246,13 +1327,18 @@ window.__ModuleLoader__.load({
 			"table.output": "Output",
 			"table.cost": "Est.",
 			"table.none": "No model records.",
-			"balance.vendor": "DeepSeek · API balance",
+			"balance.account": "Account",
+			"balance.plan": "{plan} plan",
+			"balance.unlimited": "Unlimited",
+			"balance.quota": "{n} quota",
+			"balance.unknownSoftware": "This relay runs software we do not recognise, so its balance cannot be read.",
+			"balance.unknownAccount": "No such account.",
+			"balance.failed": "Could not read the balance ({reason}).",
+			"balance.noKey": "That route has no key configured.",
 			"balance.active": "Account active",
 			"balance.inactive": "Account inactive",
 			"balance.granted": "{amount} granted",
-			"balance.noKey": "That DeepSeek official route has no key configured.",
 			"balance.noRoute": "No direct DeepSeek route — relays have no balance API.",
-			"balance.failed": "Could not read the DeepSeek balance.",
 			"balance.unavailable": "This deployment exposes no provider directory.",
 			"footer.updated": "Index updated {at}",
 			"footer.unattributed": "{n} rows unattributed"
@@ -1320,6 +1406,7 @@ window.__ModuleLoader__.load({
 		exports.ActivityStrip = ActivityStrip;
 		exports.ModelTable = ModelTable;
 		exports.BalanceCard = BalanceCard;
+		exports.AccountPicker = AccountPicker;
 		exports.Footer = Footer;
 		exports.translateWith = translateWith;
 		exports.buildQuery = buildQuery;
