@@ -142,7 +142,6 @@ npm pack --dry-run
 
 ## 致谢 / Credits
 
-- 用量折叠改编自 [`Ychris12138/dsh-usage-stats`](https://github.com/Ychris12138/dsh-usage-stats)（MIT），详见 [NOTICE](NOTICE)
 - 热力图的分位数分级与悬停详情参考 [`xiufengsun/TokenTracker`](https://github.com/xiufengsun/TokenTracker)（MIT）
 - New API 的计费口径读自 [`QuantumNous/new-api`](https://github.com/QuantumNous/new-api) 源码
 
