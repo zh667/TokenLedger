@@ -84,3 +84,7 @@ export { compact, money, num, reasonText, renderReconciliation, renderReport, sp
 export { buildResolver, normalizeRelayConfig, runCommand, sweep } from "./plugin.js";
 
 export { discoverFromContext, discoverSites, mergeSites, readAtPath } from "./discovery.js";
+
+export { BASE_PATH, USAGE_PATH, BALANCE_PATH, parseQuery, registerRoutes, screenRequest, usagePayload } from "./http.js";
+
+export { createBalanceReader, isOfficialDeepSeek, parseBalance, readDeepSeekBalance } from "./balance.js";

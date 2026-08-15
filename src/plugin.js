@@ -28,6 +28,8 @@
 import { applyUsageDelta, dayKey } from "./usage.js";
 import { RelaySiteRegistry, SITE_TYPES, createSiteResolver, domainOf } from "./relay-sites.js";
 import { discoverFromContext, mergeSites, withKnownSoftware } from "./discovery.js";
+import { createBalanceReader } from "./balance.js";
+import { registerRoutes } from "./http.js";
 import { detectRelaySoftware } from "./adapters/detect.js";
 import { LedgerStore } from "./store.js";
 import { RateTable, priceRows } from "./pricing.js";
@@ -847,6 +849,24 @@ export function apply(ctx, userConfig = {}) {
 						},
 			saveUnavailableBecause: settingsFailure
 		});
+
+	// The read-only surface the browser panel reads. Registering it is optional
+	// in both directions: a composition with no web server keeps collecting, and
+	// a deployment that never opens the panel pays only for the registration.
+	try {
+		const served = registerRoutes(ctx, {
+			store,
+			sites: () => directory.sites,
+			sweep: runSweep,
+			priced: (range, site) =>
+				config.rates === undefined ? null : priceWithConfiguredRates(store, range, site, config.rates),
+			balance: createBalanceReader(ctx),
+			logger
+		});
+		if (!served) logger?.info?.("tokenledger: no web server in this composition; the panel will not be served");
+	} catch (error) {
+		logger?.warn?.("tokenledger: could not register the HTTP routes: %s", error?.message ?? error);
+	}
 
 	if (config.sweepOnStart) void runSweep();
 

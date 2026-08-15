@@ -21,7 +21,9 @@
     "./adapters/detect": "./src/adapters/detect.js",
     "./package.json": "./package.json",
     "./plugin": "./src/plugin.js",
-    "./report": "./src/report.js"
+    "./report": "./src/report.js",
+    "./http": "./src/http.js",
+    "./balance": "./src/balance.js"
   },
   "files": [
     "src",

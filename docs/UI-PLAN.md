@@ -1,143 +1,149 @@
 # Web UI plan
 
-Written 2026-08-15. Style reference: New API (`QuantumNous/new-api`). Layout
-reference: `Ychris12138/dsh-usage-stats`. Not started — this is for review.
+Rewritten 2026-08-15 after the repository owner's four decisions. Research is
+complete — nothing here is blocked on an unknown. Implementation is starting.
 
-## The licensing constraint, first
+## Decisions
 
-**New API is AGPL-3.0. TokenLedger is MIT.** Copying its CSS, components, or
-token files into this repository would relicense this repository, and is not
-an option.
+1. **Style follows DSH itself**, not New API. A plugin that looks like a
+   different product inside the harness reads as foreign.
+2. **Balance: DeepSeek official only** for now.
+3. **No month calendar heatmap.** A compact GitHub-style strip instead, the
+   shape UsagePlane uses.
+4. Layout still referenced from `dsh-usage-stats`; the feature comparison lives
+   in [`COMPARISON.md`](COMPARISON.md).
 
-What is being taken is the *visual language* — a neutral palette, an 8px radius,
-card composition, tabular numerals, the stat-card anatomy — reproduced by hand.
-Its stack cannot be used anyway (see below), so there is nothing to copy even if
-licensing allowed it. No file from that repository will be vendored, and the
-clone stays outside this tree.
+## What DSH actually looks like
 
-## What can actually be built
+Read from `@deepseek-ai/dsh-client-ui-theme/lib/styles/design-platform.css` and
+the shipped `ui-*` bundles, not from screenshots:
 
-A DSH client plugin is **not** a normal React app. Verified against
-`@deepseek-ai/dsh-client-modules` and a working example:
+- **Achromatic.** `--dsw-alias-brand-primary` resolves to
+  `--dsw-static-neutral-bluish-1000` in light and `-50` in dark. There is no
+  chromatic brand colour. Colour is reserved for state: `state-success-primary`,
+  `state-error-primary`, `state-warn-primary`.
+- **Depth comes from borders, not fills.** In light mode `bg-layer-1` and
+  `bg-layer-2` are both neutral-00 — the same white. Borders are alpha overlays
+  (`rgba(0,0,0,0.04)` / `0.1`), so they compose over any surface. Dark lifts
+  slightly: 875 → 850.
+- **Radii** in the shipped bundles: 12px (panels, cards), 8px (buttons, cells),
+  6px (small controls), 999px (pills).
+- **Type scale** is tight: 12px and 13px carry almost everything, 14px for
+  emphasis, 11px for captions, 16–18px for headings. System font stack with
+  PingFang SC.
+- **No gradients anywhere.**
 
-- the browser half is one bundle registered through
-  `window.__ModuleLoader__.load({id, factory})`, materialized lazily;
-- React 18 arrives as a peer, from the host;
-- there is no Tailwind, no build-time CSS pipeline, no router. `dsh-usage-stats`
-  injects a single `<style data-plugin-css>` tag with hand-written, prefixed
-  rules, and that is the idiom.
+This is the opposite of New API's look — toned gradient stat cards, an OKLCH
+accent palette, `--radius: 0.5rem`. Following it would have produced exactly the
+foreign-looking panel decision 1 rules out. New API is no longer a reference for
+this work; that also removes the AGPL-vs-MIT hazard of borrowing from it.
 
-So new-api's shadcn/Tailwind v4/TanStack Router/VChart stack is a *reference
-photograph*, not a dependency list. Everything is hand-written CSS against
-DSH's own tokens.
+The one deliberate exception to achromatic: the activity strip stays green.
+Green-for-activity is a read-at-a-glance convention, and it is data rather than
+chrome.
 
-## Design tokens
+## The heatmap, and a licensing note
 
-Inherit from DSH so the panel matches whatever theme the user runs:
-`--dsw-alias-label-primary` / `-secondary` / `-tertiary` / `-caption`,
-`--dsw-alias-border-l1` / `-l2`, `--dsw-alias-fill-l2`,
-`--dsw-alias-interactive-bg-hover`.
+UsagePlane's is GitHub-style: 12px cells, 3px gaps, weeks as columns, month and
+weekday labels, a five-step legend, scrolled to the newest date. Compact because
+it is a strip, not a month grid — one row of weeks instead of a whole viewport.
 
-Define our own only for what DSH has no token for, all prefixed `--tkl-`:
+**UsagePlane is AGPL-3.0; this repository is MIT.** Its source is not copied.
+The layout is ~50 lines of grid arithmetic and is reimplemented here. The
+five-step green scale is Tailwind's emerald ramp (MIT) over GitHub's neutral
+level-0, which is where UsagePlane took it from as well.
 
-| Token | Role | Note |
-|---|---|---|
-| `--tkl-radius` | `8px` | New API's `--radius: 0.5rem` |
-| `--tkl-accent` | site/series primary | must pass contrast in both themes |
-| `--tkl-series-1..5` | categorical series | one per relay site |
-| `--tkl-grid` | chart gridlines | derived from `border-l2` |
+## The host route — resolved
 
-Every number renders with `font-variant-numeric: tabular-nums`. Non-negotiable:
-columns of figures that shift width while updating are unreadable, and it is the
-one typographic detail `dsh-usage-stats` got right that most plugins miss.
+This was the plan's only unknown. `dsh-usage-stats` answers it:
 
-Both themes are defined explicitly. The panel must never inherit a transparent
-background and borrow the host's.
+```js
+ctx.effect(() => ctx.webServer.register({
+  kind: "exact",
+  path: "/api/usage-stats/usage",
+  handler: (req, res) => ...          // plain Node http req/res
+}), "label")
+```
+
+`webServer` is an injectable service. Exact routes win over the RPC prefix,
+which means they **bypass the RPC trust boundary**, so the handler owns its own
+fence. The pattern to copy, and the reasoning behind it:
+
+- refuse anything that is not `GET`;
+- check the **peer socket address** (`req.socket.remoteAddress`) for loopback —
+  primary, because it is not client-controllable;
+- check the `Host` header for loopback as well, as a second condition, never as
+  the only one.
+
+We reach it through `ctx.get("webServer")` rather than `inject`, keeping the
+collector alive on a composition with no web server — the same optional-service
+idiom already used for `commands`, `settings` and `llm`.
 
 ## Layout
 
-Seat: `sidebar.footer.action` (badge, beside the settings gear) opening a
-`shell.overlay` panel. Same seats `dsh-usage-stats` uses; verified as the only
-ones open to third parties, since the settings plugin-card slot is gated behind
-a seven-name allowlist in `dsh-host-apiproxy`.
-
-Panel top to bottom:
+Seat: `sidebar.footer.action` badge → `shell.overlay` panel. Panel, top to
+bottom:
 
 1. **Header** — title, range selector (今日 / 7 天 / 30 天 / 全部), refresh, close.
-   The range drives everything below; `dsh-usage-stats` fixes three cards to
-   today/month/total instead, which is why a per-site monthly figure cannot be
-   read off it.
-2. **Stat row** — three cards: total tokens, requests, estimated cost. New API's
-   stat-card anatomy: label, large value, one line of detail, a sparkline. Cost
-   shows an em dash when unpriced, never zero.
-3. **Site breakdown** — *the differentiator, and therefore above the fold.* One
-   row per relay site: domain, tokens, share bar, request count. Selecting a row
-   filters the whole panel. `direct` is a row like any other.
-4. **Trend** — stacked bars per day, one series per site, so a relay appearing
-   or disappearing is visible rather than averaged away.
-5. **Model table** — model, requests, input, cache (with hit rate), output,
-   estimated cost. Sortable. Same columns as the text report, so the two never
-   disagree.
-6. **Footer** — index freshness and unattributed-row count, both already in
-   `diagnostics`. A stale or lossy index must say so on the page, not only in a
-   command.
+   The range drives everything below.
+2. **Balance** — DeepSeek official only: `GET {baseURL}/user/balance`, the CNY
+   entry of `balance_infos`. A provider with no balance API says so plainly
+   rather than rendering an empty card.
+3. **Stat row** — total tokens, requests, estimated cost. Flat cards, border-
+   defined, no gradient. Unpriced shows an em dash, never zero.
+4. **Site breakdown** — the differentiator, above the fold. One row per relay:
+   domain, tokens, share bar, requests. Selecting one filters the panel.
+   `direct` is a row like any other.
+5. **Activity strip** — the compact heatmap, one cell per day.
+6. **Model table** — model, requests, input, cache + hit rate, output, cost.
+   Same columns as the text report, so the two cannot disagree.
+7. **Footer** — index freshness and unattributed-row count, from `diagnostics`.
 
-Deliberately not copied from the reference layout: a month calendar heatmap.
-It answers "which days were busy", which the trend already shows, and it costs
-a whole viewport.
+Every figure comes from the existing `ctx.tokenLedger` queries. No new
+aggregation, so the page and `/tokenledger` cannot drift.
 
-## Data path
+## Batches
 
-The panel needs the host's rollups, and a third-party plugin registering its own
-RPC is **the one unverified step in this plan**. `dsh-usage-stats` serves
-`/api/usage-stats/usage` from its host half and fetches it same-origin from the
-browser half; that is an existence proof the route exists, and the mechanism it
-uses must be read before any UI work starts.
+Ordered by dependency; everything inside a batch is independent and can be
+written in parallel.
 
-No new aggregation. Every figure comes from `ctx.tokenLedger`'s existing
-queries — `totals`, `byDay`, `byModel`, `bySite`, `sites`, `diagnostics` — so
-the page and `/tokenledger` cannot drift.
+**Batch A — foundation.** Two halves that only meet at the end:
 
-## Plan
+- **A1 (Node)** — `webServer` route serving the existing queries as JSON, with
+  the loopback fence. Testable with `curl`, needs no browser.
+- **A2 (browser)** — `tsdown` build, `dsh.client` manifest, footer badge, empty
+  panel with header and close, the CSS base and token layer. Needs no data.
 
-**Phase 0 — the unknown, before anything else.** Read how `dsh-usage-stats`
-registers its host endpoint; register one read-only JSON route returning the
-same shapes the command already renders. Done when `curl` against a running DSH
-returns real rollups. If this cannot be made to work, the rest does not start.
+Done when the badge opens a correctly themed empty panel and `curl` returns real
+rollups.
 
-**Phase 1 — the seat.** A footer badge that opens an empty panel with header and
-close, correct in both themes. Ships the bundling step this package does not yet
-have (`tsdown`, matching upstream's client packages) and the `dsh.client` entry
-in `package.json`. Done when it opens, closes, survives a reload, and adds
-nothing to a host that mounts no UI.
+**Batch B — the panel content.** Six independent components over one payload:
 
-**Phase 2 — read-only panel.** Stat row, site breakdown, model table, footer
-diagnostics. No interactivity beyond the range selector. Done when every figure
-matches `/tokenledger` for the same range — that equality is the acceptance
-test, checked against the real install that has both a direct provider and a
-relay.
+- B1 range selector + stat row
+- B2 site breakdown
+- B3 model table
+- B4 activity strip
+- B5 footer diagnostics
+- B6 DeepSeek balance card
 
-**Phase 3 — interaction.** Site row selection filtering the panel, sortable
-model table, the trend chart. This is the part that justifies a UI at all:
-filtering by clicking instead of typing arguments.
+Acceptance for the whole batch: **every figure matches `/tokenledger` for the
+same range.** That equality is the only cheap guard a browser half gets, checked
+against the real install that has both a direct provider and a relay.
 
-**Phase 4 — polish.** Loading skeletons, empty and error states, i18n (zh + en,
-zh as source), and a real check that an unreachable host half degrades to a
-message rather than a blank panel.
+**Batch C — interaction.** Site-row selection filtering the panel; sortable
+model table. Needs B2 and B3. This is what justifies a UI over a command.
 
-Not planned: balance queries and subscription windows. `dsh-usage-stats` covers
-both, they need per-vendor credentials, and duplicating them would be building a
-worse copy of something already installed.
+**Batch D — polish.** Skeletons, empty and error states, i18n (zh source + en),
+and an unreachable host half degrading to a message rather than a blank panel.
 
-## Cost
+## Not planned
 
-The honest price of this page:
+Subscription quota windows, and balance for vendors other than DeepSeek.
+`dsh-usage-stats` covers both; a worse copy of something already installed is
+not worth the code.
 
-- ~6 `@deepseek-ai/dsh-client-*` peer dependencies plus React 18;
-- a bundling step, where today there is none and `npm test` is the whole build;
-- a surface with no test coverage — the Node half has 177 tests and the browser
-  half will start at zero. Phase 2's "matches the command" check is the only
-  cheap guard available, which is why it is the acceptance criterion.
+## Cost, restated
 
-Against that: `/tokenledger` already answers every question the page will. What
-the page adds is clicking instead of typing, and a shape a screenshot can carry.
+~6 `@deepseek-ai/dsh-client-*` peers plus React 18, a bundling step where today
+there is none, and a surface that starts with zero test coverage against 184 on
+the Node side. Batch B's equality check is the mitigation.
