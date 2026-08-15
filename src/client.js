@@ -43,6 +43,7 @@ window.__ModuleLoader__.load({
 
 		const NS = "tokenLedger";
 		const USAGE_PATH = "/api/tokenledger/usage";
+		const BALANCE_PATH = "/api/tokenledger/balance";
 
 		//#region style
 		//
@@ -97,7 +98,72 @@ window.__ModuleLoader__.load({
 			".tkl_ranges{display:flex;gap:2px;align-items:center}",
 			".tkl_range{color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:var(--tkl-radius-xs);padding:3px 8px;font:inherit;font-size:12px;line-height:18px}",
 			".tkl_range:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}",
-			".tkl_range[data-on]{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}"
+			".tkl_range[data-on]{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}",
+
+			// -- sections ----------------------------------------------------------
+			".tkl_section{margin-top:14px}",
+			".tkl_section:first-child{margin-top:0}",
+			".tkl_sectionTitle{color:var(--dsw-alias-label-tertiary);margin:0 0 6px;font-size:11px;line-height:16px;font-weight:500}",
+			".tkl_filter{color:var(--dsw-alias-label-secondary);cursor:pointer;background:var(--dsw-alias-interactive-bg-active);border:none;border-radius:999px;margin-left:6px;padding:1px 8px;font:inherit;font-size:11px;line-height:16px}",
+			".tkl_filter:hover{color:var(--dsw-alias-label-primary)}",
+
+			// -- stat row ----------------------------------------------------------
+			".tkl_stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}",
+			".tkl_stat{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--tkl-radius-sm);padding:8px 10px;min-width:0}",
+			".tkl_statValue{color:var(--dsw-alias-label-primary);font-size:16px;line-height:22px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+			".tkl_statLabel{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;margin-top:2px}",
+
+			// -- generic rows (sites) ----------------------------------------------
+			".tkl_rows{flex-direction:column;display:flex}",
+			".tkl_row{width:100%;align-items:center;gap:8px;border:0;background:0 0;border-bottom:1px solid var(--dsw-alias-border-l1);padding:6px 4px;font:inherit;text-align:left;cursor:pointer;display:flex;border-radius:var(--tkl-radius-xs)}",
+			".tkl_row:last-child{border-bottom:0}",
+			".tkl_row:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+			".tkl_row[data-on]{background:var(--dsw-alias-interactive-bg-active)}",
+			".tkl_rowName{color:var(--dsw-alias-label-primary);flex:none;width:150px;min-width:0;font-size:12px;line-height:18px;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}",
+			".tkl_rowBarTrack{background:var(--dsw-alias-fill-l2);border-radius:2px;height:6px;flex:1;min-width:16px;overflow:hidden}",
+			".tkl_rowBar{background:var(--dsw-alias-label-tertiary);border-radius:2px;height:6px}",
+			".tkl_rowValue{color:var(--dsw-alias-label-primary);flex:none;font-size:12px;line-height:18px;font-variant-numeric:tabular-nums;text-align:right;min-width:64px}",
+			".tkl_rowMeta{color:var(--dsw-alias-label-tertiary);flex:none;width:44px;font-size:11px;line-height:18px;font-variant-numeric:tabular-nums;text-align:right}",
+
+			// -- activity strip ----------------------------------------------------
+			// A strip, not a month grid: one row of weeks reads at a glance and
+			// costs 90px instead of a viewport.
+			".tkl_strip{overflow-x:auto;padding-bottom:2px}",
+			".tkl_stripGrid{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,12px);gap:3px}",
+			".tkl_cell{width:12px;height:12px;border-radius:2px;background:var(--tkl-level-0);border:0;padding:0;cursor:default}",
+			".tkl_cell[data-l='1']{background:var(--tkl-level-1)}",
+			".tkl_cell[data-l='2']{background:var(--tkl-level-2)}",
+			".tkl_cell[data-l='3']{background:var(--tkl-level-3)}",
+			".tkl_cell[data-l='4']{background:var(--tkl-level-4)}",
+			".tkl_cellPad{width:12px;height:12px}",
+			".tkl_legend{align-items:center;gap:3px;margin-top:5px;font-size:10px;line-height:14px;color:var(--dsw-alias-label-caption);display:flex}",
+			".tkl_legendSwatch{width:10px;height:10px;border-radius:2px}",
+
+			// -- model table -------------------------------------------------------
+			".tkl_table{width:100%;border-collapse:collapse;font-size:12px}",
+			".tkl_table th{color:var(--dsw-alias-label-tertiary);font-weight:500;font-size:11px;line-height:16px;text-align:right;padding:0 0 5px;border-bottom:1px solid var(--dsw-alias-border-l2);white-space:nowrap;cursor:pointer;user-select:none}",
+			".tkl_table th:first-child{text-align:left}",
+			".tkl_table th:hover{color:var(--dsw-alias-label-secondary)}",
+			".tkl_table td{color:var(--dsw-alias-label-primary);text-align:right;padding:5px 0;border-bottom:1px solid var(--dsw-alias-border-l1);font-variant-numeric:tabular-nums;white-space:nowrap}",
+			".tkl_table td:first-child{text-align:left;max-width:130px;overflow:hidden;text-overflow:ellipsis}",
+			".tkl_table tr:last-child td{border-bottom:0}",
+			".tkl_hit{color:var(--dsw-alias-label-tertiary);font-size:11px;margin-left:3px}",
+			".tkl_sortMark{color:var(--dsw-alias-label-secondary);margin-left:2px}",
+
+			// -- balance -----------------------------------------------------------
+			".tkl_balance{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--tkl-radius-sm);padding:9px 11px;display:flex;align-items:baseline;gap:8px}",
+			".tkl_balanceAmount{color:var(--dsw-alias-label-primary);font-size:16px;line-height:22px;font-weight:600;font-variant-numeric:tabular-nums}",
+			".tkl_balanceMeta{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;margin-left:auto;text-align:right}",
+
+			// -- footer ------------------------------------------------------------
+			".tkl_footer{color:var(--dsw-alias-label-caption);border-top:1px solid var(--dsw-alias-border-l1);margin-top:14px;padding-top:8px;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums}",
+			".tkl_warn{color:var(--dsw-alias-state-warn-primary)}",
+
+			// -- skeleton ----------------------------------------------------------
+			".tkl_skel{background:var(--dsw-alias-bg-skeleton);border-radius:var(--tkl-radius-xs);height:12px;animation:tkl_pulse 1.4s ease-in-out infinite}",
+			".tkl_skelStat{height:52px;border-radius:var(--tkl-radius-sm)}",
+			"@keyframes tkl_pulse{0%,100%{opacity:1}50%{opacity:.45}}",
+			"@media (prefers-reduced-motion:reduce){.tkl_skel{animation:none}}"
 		].join("");
 
 		const STYLE_ID = "dsh-tokenledger/panel.css";
@@ -127,7 +193,37 @@ window.__ModuleLoader__.load({
 			error: "tkl_error",
 			retry: "tkl_retry",
 			ranges: "tkl_ranges",
-			range: "tkl_range"
+			range: "tkl_range",
+			section: "tkl_section",
+			sectionTitle: "tkl_sectionTitle",
+			filter: "tkl_filter",
+			stats: "tkl_stats",
+			stat: "tkl_stat",
+			statValue: "tkl_statValue",
+			statLabel: "tkl_statLabel",
+			rows: "tkl_rows",
+			row: "tkl_row",
+			rowName: "tkl_rowName",
+			rowBarTrack: "tkl_rowBarTrack",
+			rowBar: "tkl_rowBar",
+			rowValue: "tkl_rowValue",
+			rowMeta: "tkl_rowMeta",
+			strip: "tkl_strip",
+			stripGrid: "tkl_stripGrid",
+			cell: "tkl_cell",
+			cellPad: "tkl_cellPad",
+			legend: "tkl_legend",
+			legendSwatch: "tkl_legendSwatch",
+			table: "tkl_table",
+			hit: "tkl_hit",
+			sortMark: "tkl_sortMark",
+			balance: "tkl_balance",
+			balanceAmount: "tkl_balanceAmount",
+			balanceMeta: "tkl_balanceMeta",
+			footer: "tkl_footer",
+			warn: "tkl_warn",
+			skel: "tkl_skel",
+			skelStat: "tkl_skelStat"
 		};
 		//#endregion
 
@@ -146,18 +242,44 @@ window.__ModuleLoader__.load({
 			return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString() : "—";
 		}
 
-		async function fetchUsage(days, signal) {
-			const query = days === undefined ? "" : `?days=${days}`;
-			const response = await fetch(USAGE_PATH + query, {
-				headers: { accept: "application/json" },
-				signal
-			});
+		/** Percentage of a whole, guarding the zero denominator. */
+		function share(part, whole) {
+			return typeof part === "number" && typeof whole === "number" && whole > 0 ? (part / whole) * 100 : 0;
+		}
+
+		/** A cache hit rate as text; `null` is "no prompt tokens", not "0%". */
+		function fmtHit(rate) {
+			return typeof rate === "number" && Number.isFinite(rate) ? `${rate}%` : "";
+		}
+
+		/** Money with its own currency symbol, or an em dash when unpriced. */
+		function fmtMoney(amount, currency) {
+			if (typeof amount !== "number" || !Number.isFinite(amount)) return "—";
+			const symbol = currency === "CNY" ? "¥" : currency === "USD" ? "$" : "";
+			const text = amount.toFixed(amount < 1 ? 4 : 2);
+			return symbol === "" ? `${text} ${currency ?? ""}`.trim() : `${symbol}${text}`;
+		}
+
+		async function fetchJson(path, signal) {
+			const response = await fetch(path, { headers: { accept: "application/json" }, signal });
 			if (!response.ok) throw new Error(`HTTP ${response.status}`);
 			const payload = await response.json();
 			if (payload === null || typeof payload !== "object" || payload.ok !== true) {
 				throw new Error("unexpected response");
 			}
 			return payload;
+		}
+
+		/** `?days=&site=`, mirroring the command's two arguments. */
+		function buildQuery(days, site) {
+			const parts = [];
+			if (days !== undefined) parts.push(`days=${days}`);
+			if (site !== undefined && site !== "") parts.push(`site=${encodeURIComponent(site)}`);
+			return parts.length === 0 ? "" : `?${parts.join("&")}`;
+		}
+
+		function fetchUsage(days, site, signal) {
+			return fetchJson(USAGE_PATH + buildQuery(days, site), signal);
 		}
 
 		/**
@@ -167,15 +289,16 @@ window.__ModuleLoader__.load({
 		 * quickly is the normal way to use this panel, and without the abort the
 		 * slower of two requests wins whenever it happens to land last.
 		 */
-		function useUsage(open, days) {
+		function useUsage(open, days, site, nonce) {
 			const [state, setState] = react.useState({ status: "idle" });
-			const [nonce, setNonce] = react.useState(0);
 
 			react.useEffect(() => {
 				if (!open) return undefined;
 				const controller = new AbortController();
+				// Keep the previous data while reloading: blanking the panel on every
+				// range change makes it flicker through an empty state it is not in.
 				setState((prev) => ({ status: "loading", data: prev.data }));
-				fetchUsage(days, controller.signal).then(
+				fetchUsage(days, site, controller.signal).then(
 					(data) => {
 						if (!controller.signal.aborted) setState({ status: "ready", data });
 					},
@@ -185,9 +308,39 @@ window.__ModuleLoader__.load({
 					}
 				);
 				return () => controller.abort();
-			}, [open, days, nonce]);
+			}, [open, days, site, nonce]);
 
-			return [state, () => setNonce((n) => n + 1)];
+			return state;
+		}
+
+		/**
+		 * The official account balance, fetched once per opening.
+		 *
+		 * Separate from the usage payload because it reaches a vendor over the
+		 * network: a slow or unreachable balance API must not hold up figures that
+		 * are already on disk.
+		 */
+		function useBalance(open, nonce) {
+			const [state, setState] = react.useState({ status: "idle" });
+
+			react.useEffect(() => {
+				if (!open) return undefined;
+				const controller = new AbortController();
+				setState({ status: "loading" });
+				fetchJson(BALANCE_PATH, controller.signal).then(
+					(data) => {
+						if (!controller.signal.aborted) setState({ status: "ready", data });
+					},
+					() => {
+						// A balance that cannot be read is not worth an error banner over
+						// a panel whose real subject is token usage.
+						if (!controller.signal.aborted) setState({ status: "off" });
+					}
+				);
+				return () => controller.abort();
+			}, [open, nonce]);
+
+			return state;
 		}
 		//#endregion
 
@@ -212,14 +365,327 @@ window.__ModuleLoader__.load({
 			});
 		}
 
+		function Section({ title, action, children }) {
+			return jsxs("div", {
+				className: S.section,
+				children: [
+					jsxs("div", {
+						className: S.sectionTitle,
+						children: [title, action]
+					}),
+					children
+				]
+			});
+		}
+
+		/** Three flat cards. Cost is an em dash when unpriced — never a zero. */
+		function StatRow({ data, translate }) {
+			const totals = data.totals ?? {};
+			const currencies = Object.entries(data.priced?.totals ?? {});
+			const cost = currencies.length === 0 ? "—" : currencies.map(([c, v]) => fmtMoney(v, c)).join(" + ");
+			const cards = [
+				{ value: fmt(totals.tokens), label: translate("stat.tokens") },
+				{ value: fmt(totals.requests), label: translate("stat.requests") },
+				{ value: cost, label: translate("stat.cost") }
+			];
+			return jsx("div", {
+				className: S.stats,
+				children: cards.map((card, i) =>
+					jsxs(
+						"div",
+						{
+							className: S.stat,
+							children: [
+								jsx("div", { className: S.statValue, children: card.value }),
+								jsx("div", { className: S.statLabel, children: card.label })
+							]
+						},
+						i
+					)
+				)
+			});
+		}
+
 		/**
-		 * The panel body.
+		 * The site breakdown — the reason this panel exists.
 		 *
-		 * Batch A ships the shell: loading, error, and a placeholder. The sections
-		 * that read the payload land in Batch B, each one independent of the
-		 * others, which is why they are not stubbed here.
+		 * Rows are never filtered by the current selection: this list is how you
+		 * change that selection, so hiding the others would strand you on whatever
+		 * you last clicked. Clicking the active row clears the filter.
 		 */
-		function Body({ state, translate, onRetry }) {
+		function SiteRows({ data, site, onSelect, translate }) {
+			const rows = data.sites ?? [];
+			if (rows.length === 0) return jsx("p", { className: S.note, children: translate("sites.none") });
+			const max = Math.max(...rows.map((r) => r.tokens ?? 0), 1);
+			const byId = new Map((data.directory ?? []).map((d) => [d.id, d]));
+
+			return jsx("div", {
+				className: S.rows,
+				children: rows.map((row) => {
+					const id = row.site;
+					const known = byId.get(id);
+					const label = id === "direct" ? translate("sites.direct") : id;
+					const routes = known?.routes?.length ? known.routes.join(", ") : undefined;
+					return jsxs(
+						"button",
+						{
+							type: "button",
+							className: S.row,
+							...(id === site ? { "data-on": "" } : {}),
+							title: routes === undefined ? label : `${label} · ${routes}`,
+							onClick: () => onSelect(id === site ? undefined : id),
+							children: [
+								jsx("span", { className: S.rowName, children: label }),
+								jsx("span", {
+									className: S.rowBarTrack,
+									children: jsx("span", {
+										className: S.rowBar,
+										style: { width: `${Math.max(2, share(row.tokens, max))}%` }
+									})
+								}),
+								jsx("span", { className: S.rowValue, children: fmt(row.tokens) })
+							]
+						},
+						id
+					);
+				})
+			});
+		}
+
+		/**
+		 * A compact activity strip: weeks as columns, one 12px cell per day.
+		 *
+		 * A month grid was the obvious thing to copy and is the wrong shape — it
+		 * answers "which days were busy" using a whole viewport, where a strip
+		 * answers it in one band and shows more than a month at once.
+		 *
+		 * Levels are relative to the busiest day in view, so a quiet week still
+		 * has contrast rather than rendering as one flat colour.
+		 */
+		function ActivityStrip({ data, translate }) {
+			const days = data.days ?? [];
+			if (days.length === 0) return jsx("p", { className: S.note, children: translate("activity.none") });
+
+			const byDay = new Map(days.map((d) => [d.day, d.tokens ?? 0]));
+			const max = Math.max(...byDay.values(), 1);
+			const last = new Date(`${days[days.length - 1].day}T00:00:00`);
+			const first = new Date(`${days[0].day}T00:00:00`);
+
+			// Pad to whole weeks so columns line up on a weekday, Monday first.
+			const cells = [];
+			const startPad = (first.getDay() + 6) % 7;
+			for (let i = 0; i < startPad; i++) cells.push(null);
+			for (let t = first.getTime(); t <= last.getTime(); t += 86_400_000) {
+				const key = localDayKey(new Date(t));
+				cells.push({ day: key, tokens: byDay.get(key) ?? 0 });
+			}
+
+			return jsxs("div", {
+				children: [
+					jsx("div", {
+						className: S.strip,
+						children: jsx("div", {
+							className: S.stripGrid,
+							children: cells.map((cell, i) =>
+								cell === null
+									? jsx("span", { className: S.cellPad }, `p${i}`)
+									: jsx(
+											"span",
+											{
+												className: S.cell,
+												"data-l": String(levelOf(cell.tokens, max)),
+												title: `${cell.day} · ${fmt(cell.tokens)}`
+											},
+											cell.day
+										)
+							)
+						})
+					}),
+					jsxs("div", {
+						className: S.legend,
+						children: [
+							jsx("span", { children: translate("activity.less") }),
+							[0, 1, 2, 3, 4].map((level) =>
+								jsx(
+									"span",
+									{
+										className: S.legendSwatch,
+										style: { background: `var(--tkl-level-${level})` }
+									},
+									level
+								)
+							),
+							jsx("span", { children: translate("activity.more") })
+						]
+					})
+				]
+			});
+		}
+
+		/**
+		 * `YYYY-MM-DD` from a date's LOCAL components.
+		 *
+		 * `toISOString()` is the obvious call and the wrong one: it formats in UTC,
+		 * while the store keys its days in local time. Mixing the two shifts every
+		 * cell by a day for anyone not on UTC — the strip renders one leading blank
+		 * and attributes each day's usage to the one before it. Caught by a test
+		 * only because this machine happens to sit at UTC+9.
+		 */
+		function localDayKey(date) {
+			const month = String(date.getMonth() + 1).padStart(2, "0");
+			const day = String(date.getDate()).padStart(2, "0");
+			return `${date.getFullYear()}-${month}-${day}`;
+		}
+
+		/** Five steps, and only a genuinely idle day is level zero. */
+		function levelOf(tokens, max) {
+			if (!(tokens > 0)) return 0;
+			const ratio = tokens / max;
+			if (ratio > 0.75) return 4;
+			if (ratio > 0.5) return 3;
+			if (ratio > 0.25) return 2;
+			return 1;
+		}
+
+		const MODEL_COLUMNS = [
+			{ id: "model", label: "table.model", get: (m) => m.model, numeric: false },
+			{ id: "requests", label: "table.requests", get: (m) => m.requests ?? 0 },
+			{ id: "inputTokens", label: "table.input", get: (m) => m.inputTokens ?? 0 },
+			{ id: "cacheReadTokens", label: "table.cache", get: (m) => m.cacheReadTokens ?? 0 },
+			{ id: "outputTokens", label: "table.output", get: (m) => m.outputTokens ?? 0 },
+			{ id: "cost", label: "table.cost", get: (m) => m.cost ?? -1 }
+		];
+
+		/** Same columns as the text report, so the two cannot disagree. */
+		function ModelTable({ data, translate }) {
+			const [sort, setSort] = react.useState({ by: "inputTokens", desc: true });
+			const priced = new Map((data.priced?.rows ?? []).map((r) => [r.model, r]));
+			const rows = (data.models ?? []).map((m) => ({ ...m, ...priced.get(m.model) }));
+			if (rows.length === 0) return jsx("p", { className: S.note, children: translate("table.none") });
+
+			const column = MODEL_COLUMNS.find((c) => c.id === sort.by) ?? MODEL_COLUMNS[2];
+			const sorted = rows.slice().sort((a, b) => {
+				const x = column.get(a);
+				const y = column.get(b);
+				const order = column.numeric === false ? String(x).localeCompare(String(y)) : x - y;
+				return sort.desc ? -order : order;
+			});
+
+			const toggle = (id) =>
+				setSort((prev) => (prev.by === id ? { by: id, desc: !prev.desc } : { by: id, desc: true }));
+
+			return jsxs("table", {
+				className: S.table,
+				children: [
+					jsx("thead", {
+						children: jsx("tr", {
+							children: MODEL_COLUMNS.map((c) =>
+								jsxs(
+									"th",
+									{
+										onClick: () => toggle(c.id),
+										children: [
+											translate(c.label),
+											sort.by === c.id ? jsx("span", { className: S.sortMark, children: sort.desc ? "↓" : "↑" }) : null
+										]
+									},
+									c.id
+								)
+							)
+						})
+					}),
+					jsx("tbody", {
+						children: sorted.map((m) =>
+							jsxs(
+								"tr",
+								{
+									children: [
+										jsx("td", { title: m.model, children: m.model }),
+										jsx("td", { children: fmt(m.requests) }),
+										jsx("td", { children: fmt(m.inputTokens) }),
+										jsxs("td", {
+											children: [fmt(m.cacheReadTokens), jsx("span", { className: S.hit, children: fmtHit(m.cacheHitRate) })]
+										}),
+										jsx("td", { children: fmt(m.outputTokens) }),
+										jsx("td", { children: m.cost === null || m.cost === undefined ? "—" : fmtMoney(m.cost, m.currency) })
+									]
+								},
+								m.model
+							)
+						)
+					})
+				]
+			});
+		}
+
+		/**
+		 * DeepSeek official balance.
+		 *
+		 * A deployment with only relays renders one honest line rather than an
+		 * empty card: a relay has no balance endpoint of this shape, and nothing
+		 * is wrong when it says so.
+		 */
+		function BalanceCard({ state, translate }) {
+			if (state.status === "loading") return jsx("div", { className: `${S.skel} ${S.skelStat}` });
+			if (state.status !== "ready") return null;
+			const balance = state.data;
+			if (balance.supported === false) {
+				return jsx("p", { className: S.note, children: translate(`balance.${balance.reason === "no-official-route" ? "noRoute" : "unavailable"}`) });
+			}
+			if (balance.ok === false) {
+				return jsx("p", {
+					className: S.note,
+					children: translate(balance.reason === "no-credential" ? "balance.noKey" : "balance.failed")
+				});
+			}
+			const amount = Number.parseFloat(balance.total);
+			return jsxs("div", {
+				className: S.balance,
+				children: [
+					jsx("span", {
+						className: S.balanceAmount,
+						children: Number.isFinite(amount) ? fmtMoney(amount, balance.currency) : "—"
+					}),
+					jsx("span", {
+						className: S.balanceMeta,
+						children: balance.isAvailable === true ? translate("balance.active") : translate("balance.inactive")
+					})
+				]
+			});
+		}
+
+		/** Index health. A stale or lossy index must say so on the page. */
+		function Footer({ data, translate }) {
+			const d = data.diagnostics ?? {};
+			const updated = typeof d.lastUpdatedAt === "number" ? new Date(d.lastUpdatedAt).toLocaleString() : "—";
+			return jsxs("div", {
+				className: S.footer,
+				children: [
+					translate("footer.updated", { at: updated }),
+					d.unattributedRows > 0
+						? jsx("span", {
+								className: S.warn,
+								children: ` · ${translate("footer.unattributed", { n: fmt(d.unattributedRows) })}`
+							})
+						: null
+				]
+			});
+		}
+
+		function Skeleton() {
+			return jsxs("div", {
+				children: [
+					jsx("div", {
+						className: S.stats,
+						children: [0, 1, 2].map((i) => jsx("div", { className: `${S.skel} ${S.skelStat}` }, i))
+					}),
+					jsx("div", { className: S.section, children: jsx("div", { className: S.skel, style: { height: "76px" } }) })
+				]
+			});
+		}
+
+		/** The panel body: every section, each complete. */
+		function Body({ state, balance, site, onSelect, translate, onRetry }) {
 			if (state.status === "error") {
 				return jsxs("div", {
 					children: [
@@ -229,13 +695,36 @@ window.__ModuleLoader__.load({
 					]
 				});
 			}
-			if (state.data === undefined) {
-				return jsx("p", { className: S.note, children: translate("state.loading") });
-			}
-			const total = state.data.totals?.tokens;
-			return jsx("p", {
-				className: S.note,
-				children: translate("state.placeholder", { tokens: fmt(total) })
+			if (state.data === undefined) return jsx(Skeleton, {});
+
+			const data = state.data;
+			const empty = (data.totals?.requests ?? 0) === 0;
+
+			return jsxs("div", {
+				children: [
+					jsx(Section, { title: translate("section.balance"), children: jsx(BalanceCard, { state: balance, translate }) }),
+					jsx(Section, {
+						title: translate("section.usage"),
+						action: site === undefined
+							? null
+							: jsx("button", {
+									type: "button",
+									className: S.filter,
+									onClick: () => onSelect(undefined),
+									children: translate("filter.clear", { site })
+								}),
+						children: empty
+							? jsx("p", { className: S.note, children: translate("state.empty") })
+							: jsx(StatRow, { data, translate })
+					}),
+					jsx(Section, {
+						title: translate("section.sites"),
+						children: jsx(SiteRows, { data, site, onSelect, translate })
+					}),
+					empty ? null : jsx(Section, { title: translate("section.activity"), children: jsx(ActivityStrip, { data, translate }) }),
+					empty ? null : jsx(Section, { title: translate("section.models"), children: jsx(ModelTable, { data, translate }) }),
+					jsx(Footer, { data, translate })
+				]
 			});
 		}
 
@@ -249,8 +738,12 @@ window.__ModuleLoader__.load({
 		function TokenLedgerPanel({ wide, t }) {
 			const [open, setOpen] = react.useState(false);
 			const [range, setRange] = react.useState("30");
+			const [site, setSite] = react.useState(undefined);
+			const [nonce, setNonce] = react.useState(0);
 			const days = RANGES.find((r) => r.id === range)?.days;
-			const [state, reload] = useUsage(open, days);
+			const state = useUsage(open, days, site, nonce);
+			const balance = useBalance(open, nonce);
+			const reload = () => setNonce((n) => n + 1);
 			const translate = translateWith(t);
 
 			// Escape closes, and only while open: a global listener that outlives
@@ -323,7 +816,7 @@ window.__ModuleLoader__.load({
 								}),
 								jsx("div", {
 									className: S.body,
-									children: jsx(Body, { state, translate, onRetry: reload })
+									children: jsx(Body, { state, balance, site, onSelect: setSite, translate, onRetry: reload })
 								})
 							]
 						})
@@ -343,8 +836,37 @@ window.__ModuleLoader__.load({
 			"action.close": "关闭",
 			"action.retry": "重试",
 			"state.loading": "读取中…",
-			"state.placeholder": "共 {tokens} tokens。",
-			"error.load": "读不到用量数据。"
+			"state.empty": "这个区间内没有记录到任何用量。",
+			"error.load": "读不到用量数据。",
+			"section.balance": "官方余额",
+			"section.usage": "用量",
+			"section.sites": "中转站分布",
+			"section.activity": "活跃度",
+			"section.models": "模型",
+			"filter.clear": "只看 {site} ×",
+			"stat.tokens": "tokens",
+			"stat.requests": "请求",
+			"stat.cost": "估算费用",
+			"sites.direct": "直连/官方",
+			"sites.none": "没有发现中转站——直连的话这就是全部。",
+			"activity.none": "这个区间内没有活跃记录。",
+			"activity.less": "少",
+			"activity.more": "多",
+			"table.model": "模型",
+			"table.requests": "请求",
+			"table.input": "输入",
+			"table.cache": "缓存",
+			"table.output": "输出",
+			"table.cost": "估算",
+			"table.none": "没有模型记录。",
+			"balance.active": "账户可用",
+			"balance.inactive": "账户不可用",
+			"balance.noKey": "这条官方路由没有配置密钥，查不了余额。",
+			"balance.noRoute": "没有直连官方的路由——中转站没有余额接口。",
+			"balance.failed": "余额读取失败。",
+			"balance.unavailable": "这个部署问不到 provider 配置。",
+			"footer.updated": "索引更新于 {at}",
+			"footer.unattributed": "{n} 行归因不上"
 		};
 		const en = {
 			"panel.title": "Token Ledger",
@@ -356,8 +878,37 @@ window.__ModuleLoader__.load({
 			"action.close": "Close",
 			"action.retry": "Retry",
 			"state.loading": "Loading…",
-			"state.placeholder": "{tokens} tokens in total.",
-			"error.load": "Could not read usage data."
+			"state.empty": "No usage recorded in this range.",
+			"error.load": "Could not read usage data.",
+			"section.balance": "Official balance",
+			"section.usage": "Usage",
+			"section.sites": "By relay site",
+			"section.activity": "Activity",
+			"section.models": "Models",
+			"filter.clear": "{site} only ×",
+			"stat.tokens": "tokens",
+			"stat.requests": "requests",
+			"stat.cost": "est. cost",
+			"sites.direct": "Direct",
+			"sites.none": "No relay sites found — if you go direct, this is all of it.",
+			"activity.none": "No activity in this range.",
+			"activity.less": "Less",
+			"activity.more": "More",
+			"table.model": "Model",
+			"table.requests": "Req",
+			"table.input": "Input",
+			"table.cache": "Cache",
+			"table.output": "Output",
+			"table.cost": "Est.",
+			"table.none": "No model records.",
+			"balance.active": "Account active",
+			"balance.inactive": "Account inactive",
+			"balance.noKey": "That official route has no key configured.",
+			"balance.noRoute": "No direct official route — relays have no balance API.",
+			"balance.failed": "Could not read the balance.",
+			"balance.unavailable": "This deployment exposes no provider directory.",
+			"footer.updated": "Index updated {at}",
+			"footer.unattributed": "{n} rows unattributed"
 		};
 
 		/**
@@ -403,7 +954,19 @@ window.__ModuleLoader__.load({
 		exports.TokenLedgerPanel = TokenLedgerPanel;
 		exports.RangeTabs = RangeTabs;
 		exports.Body = Body;
+		exports.StatRow = StatRow;
+		exports.SiteRows = SiteRows;
+		exports.ActivityStrip = ActivityStrip;
+		exports.ModelTable = ModelTable;
+		exports.BalanceCard = BalanceCard;
+		exports.Footer = Footer;
 		exports.translateWith = translateWith;
+		exports.buildQuery = buildQuery;
+		exports.levelOf = levelOf;
+		exports.localDayKey = localDayKey;
+		exports.fmtMoney = fmtMoney;
+		exports.fmtHit = fmtHit;
+		exports.share = share;
 		exports.fmt = fmt;
 		exports.RANGES = RANGES;
 		exports.USAGE_PATH = USAGE_PATH;
