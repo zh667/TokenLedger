@@ -1135,15 +1135,26 @@ window.__ModuleLoader__.load({
 
 		function Footer({ data, translate }) {
 			const d = data.diagnostics ?? {};
+			// When the logs were LOOKED AT, not when they last changed. Those are
+			// different facts, and reporting the second as freshness made a quiet
+			// hour look like a stuck panel — the figures were current the whole
+			// time, and the line said they were an hour old.
+			const checked = data.lastSweepAt;
 			return jsxs("div", {
 				className: S.footer,
 				children: [
 					jsx("span", {
 						// The exact moment is still one hover away, for anyone who
 						// wants to know rather than to judge freshness.
-						title: typeof d.lastUpdatedAt === "number" ? new Date(d.lastUpdatedAt).toLocaleString() : "",
-						children: translate("footer.updated", { ago: agoLabel(d.lastUpdatedAt, translate) })
+						title: typeof checked === "number" ? new Date(checked).toLocaleString() : "",
+						children: translate("footer.updated", { ago: agoLabel(checked, translate) })
 					}),
+					typeof d.lastUpdatedAt === "number"
+						? jsx("span", {
+								title: new Date(d.lastUpdatedAt).toLocaleString(),
+								children: ` · ${translate("footer.lastActivity", { ago: agoLabel(d.lastUpdatedAt, translate) })}`
+							})
+						: null,
 					d.unattributedRows > 0
 						? jsx("span", {
 								className: S.warn,
@@ -1410,6 +1421,7 @@ window.__ModuleLoader__.load({
 			"footer.hours": "{n} 小时前",
 			"footer.days": "{n} 天前",
 			"footer.never": "尚未",
+			"footer.lastActivity": "最近一次用量{ago}",
 			"footer.unattributed": "{n} 行认不出是哪个站"
 		};
 		const en = {
@@ -1486,6 +1498,7 @@ window.__ModuleLoader__.load({
 			"footer.hours": "{n} h ago",
 			"footer.days": "{n} d ago",
 			"footer.never": "never",
+			"footer.lastActivity": "last usage {ago}",
 			"footer.unattributed": "{n} rows could not be attributed"
 		};
 

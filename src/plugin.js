@@ -656,6 +656,12 @@ export function apply(ctx, userConfig = {}) {
 	};
 
 	let running = false;
+	// When the logs were last LOOKED AT, which is a different fact from when
+	// they last changed. The checkpoint table only advances on a session that
+	// moved, so a quiet hour leaves `MAX(updatedAt)` an hour behind while the
+	// figures are perfectly current — reported as freshness that reads as a
+	// stuck panel.
+	let lastSweepAt;
 
 	const runSweep = async () => {
 		// A slow sweep must not overlap itself and double the read load.
@@ -686,6 +692,7 @@ export function apply(ctx, userConfig = {}) {
 					stats.failed
 				);
 			}
+			lastSweepAt = Date.now();
 			return stats;
 		} catch (error) {
 			logger?.warn?.("tokenledger: sweep failed: %s", error?.message ?? error);
@@ -861,6 +868,7 @@ export function apply(ctx, userConfig = {}) {
 			priced: (range, site) =>
 				config.rates === undefined ? null : priceWithConfiguredRates(store, range, site, config.rates),
 			accounts: () => listAccounts(ctx, { softwareOf }),
+			lastSweepAt: () => lastSweepAt,
 			balance: createBalanceReader(ctx, {
 				softwareOf,
 				// A lazily detected relay program is remembered, so the probe

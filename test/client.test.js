@@ -886,3 +886,30 @@ test("the footer says nothing about an index", async () => {
 		}
 	}
 });
+
+test("freshness reports when the logs were READ, not when they last changed", async () => {
+	// The checkpoint table only advances on a session that moved, so after a
+	// quiet half hour it sat half an hour behind while the figures were exactly
+	// right — reported as freshness, that reads as a stuck panel, and it was
+	// reported as one.
+	const { exports, render } = await loadBundle();
+	const now = Date.now();
+	const text = textOf(
+		render(exports.Footer, {
+			data: {
+				lastSweepAt: now - 4_000,
+				diagnostics: { lastUpdatedAt: now - 35 * 60_000, unattributedRows: 0 }
+			},
+			translate: T
+		})
+	);
+	assert.ok(text.includes("footer.updated:footer.justNow"), `stale freshness: ${text}`);
+	// The other fact is still worth stating, just not as freshness.
+	assert.ok(text.includes("footer.lastActivity:footer.minutes:35"), text);
+});
+
+test("a panel that has never swept says so rather than claiming to be current", async () => {
+	const { exports, render } = await loadBundle();
+	const text = textOf(render(exports.Footer, { data: { diagnostics: {} }, translate: T }));
+	assert.ok(text.includes("footer.never"));
+});

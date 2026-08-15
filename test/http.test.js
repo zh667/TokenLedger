@@ -315,3 +315,26 @@ test("the offset's sign is inverted from getTimezoneOffset, which counts west", 
 	assert.equal(hostTimeZone({ getTimezoneOffset: () => -345 }).offset, "UTC+05:45");
 	assert.equal(hostTimeZone({ getTimezoneOffset: () => 0 }).offset, "UTC+00:00");
 });
+
+test("the payload separates when the logs were read from when they changed", () => {
+	// One is freshness, the other is activity. Reporting the second as the first
+	// made a quiet half hour look like a stuck panel.
+	const store = seeded();
+	try {
+		const read = Date.now();
+		const p = usagePayload({ store, sites: () => [], lastSweepAt: () => read }, { range: {} });
+		assert.equal(p.lastSweepAt, read);
+		assert.equal(typeof p.diagnostics.lastUpdatedAt, "number");
+	} finally {
+		store.close();
+	}
+});
+
+test("a host that has never swept reports no read time rather than a wrong one", () => {
+	const store = seeded();
+	try {
+		assert.equal(usagePayload({ store, sites: () => [] }, { range: {} }).lastSweepAt, undefined);
+	} finally {
+		store.close();
+	}
+});
