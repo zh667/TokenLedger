@@ -24,9 +24,13 @@
 #           id: my-label
 #           type: sub2api
 
+# The entry name is the BARE package name, deliberately. The client-module
+# scanner treats it as a package specifier and resolves `<name>/package.json`;
+# a subpath such as `dsh-tokenledger/plugin` fails that resolve, is cached as
+# "not a client package", and the panel silently never loads.
 - insert:
     - id: tokenledger
-      name: 'dsh-tokenledger/plugin'
+      name: dsh-tokenledger
       config:
         database: !!js dshHomePath('tokenledger.sqlite')
         sweepIntervalMs: 60000

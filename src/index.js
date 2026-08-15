@@ -81,7 +81,14 @@ export {
 
 export { compact, money, num, reasonText, renderReconciliation, renderReport, sparkline, table } from "./report.js";
 
-export { buildResolver, normalizeRelayConfig, runCommand, sweep } from "./plugin.js";
+// The package root is BOTH the library barrel and the Cordis plugin, and it has
+// to be: the client-module scanner treats a Loader entry's name as a package
+// specifier and resolves `<name>/package.json` from it. A subpath entry name
+// like `dsh-tokenledger/plugin` fails that resolve, the failure is swallowed as
+// "not a client package", and the verdict is cached forever — so the browser
+// half never loads and nothing says why. The entry name must be the bare
+// package name, which makes this file the plugin.
+export { apply, buildResolver, inject, name, normalizeRelayConfig, runCommand, sweep } from "./plugin.js";
 
 export { discoverFromContext, discoverSites, mergeSites, readAtPath } from "./discovery.js";
 
