@@ -23,7 +23,8 @@
     "./plugin": "./src/plugin.js",
     "./report": "./src/report.js",
     "./http": "./src/http.js",
-    "./balance": "./src/balance.js"
+    "./balance": "./src/balance.js",
+    "./client": "./src/client.js"
   },
   "files": [
     "src",
@@ -51,6 +52,14 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
     }
   },
   "dependencies": {
