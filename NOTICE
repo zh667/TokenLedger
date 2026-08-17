@@ -7,12 +7,10 @@ This product includes software developed by the dsh-usage-stats project.
   Copyright (c) 2026 dsh-usage-stats contributors
   Licensed under the MIT License.
 
-`src/usage.js` adapts the per-day, per-model token-usage fold from
-`dsh-usage-stats/lib/usage.js`, retaining its dual-source sampling
-(`assistant/chunk` + `assistant/message`), its same-(turn, step) replacement
-semantics, and its `message.source` → `request/header` route attribution.
-TokenLedger extends that fold with a relay-site dimension, reasoning-token and
-request counting, disjoint-bucket billed totals, and range/site queries.
+`src/balance.js` adapts the response-shape parsers for OpenRouter,
+Moonshot/Kimi, and Z.ai/GLM from `dsh-usage-stats/lib/balance.js`. TokenLedger
+extends them with origin-based scheme selection, account collapsing,
+OpenRouter Management Key guidance, and conservative currency handling.
 
 This product's understanding of the DSH event contract is derived from the
 published type declarations of the following MIT-licensed packages, which are

@@ -40,8 +40,6 @@
  * subdivision of `outputTokens` and is tracked for display only — it is never
  * added to any total.
  *
- * Portions adapted from dsh-usage-stats (MIT). See NOTICE.
- *
  * @module dsh-tokenledger/usage
  */
 

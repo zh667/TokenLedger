@@ -31,7 +31,7 @@ npm pack "@deepseek-ai/dsh-host-webserver@$(该 profile 里 dsh 的版本)"
 tar xzf *.tgz && grep -n 'super(ctx, "' package/lib/index.js
 ```
 
-**更可靠的证据：同一个 profile 里能工作的邻居插件。** 定位这个 bug 的不是任何 npm 查询，是 `dsh-usage-stats` 用 `ctx.webServer.register(...)` 而它的路由返回 200。**装着的、活着的邻居永远比 registry 上的包准。**
+**更可靠的证据：对同一个 profile 里已经注册的真实路由发请求。** 定位这个 bug 的不是任何 npm 查询，而是一个已加载插件的路由返回 200。**运行中的 composition 永远比 registry 上脱离上下文的包准。**
 
 因此代码里两个名字都接受（`WEB_SERVER_NAMES`、`REGISTRY_NAMES`），新的优先。它们都是真实发行过的名字，不是猜出来的兼容层。
 

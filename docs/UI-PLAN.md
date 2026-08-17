@@ -10,8 +10,8 @@ decisions and of where the plan was mistaken. The post-mortem is at the bottom.
 2. **Balance: DeepSeek official only** for now.
 3. **No month calendar heatmap.** A compact GitHub-style strip instead, the
    shape UsagePlane uses.
-4. Layout still referenced from `dsh-usage-stats`; the feature comparison lives
-   in [`COMPARISON.md`](COMPARISON.md).
+4. Layout follows DSH's own sidebar, overlay and theme constraints. The feature
+   comparison with another usage plugin lives in [`COMPARISON.md`](COMPARISON.md).
 
 ## What DSH actually looks like
 
@@ -55,7 +55,7 @@ level-0, which is where UsagePlane took it from as well.
 
 ## The host route — resolved
 
-This was the plan's only unknown. `dsh-usage-stats` answers it:
+This was the plan's only unknown. The host route contract is:
 
 ```js
 ctx.effect(() => ctx.webServer.register({
@@ -67,7 +67,7 @@ ctx.effect(() => ctx.webServer.register({
 
 `webServer` is an injectable service. Exact routes win over the RPC prefix,
 which means they **bypass the RPC trust boundary**, so the handler owns its own
-fence. The pattern to copy, and the reasoning behind it:
+fence. The resulting security requirements are:
 
 - refuse anything that is not `GET`;
 - check the **peer socket address** (`req.socket.remoteAddress`) for loopback —
@@ -142,9 +142,9 @@ and an unreachable host half degrading to a message rather than a blank panel.
 
 ## Not planned
 
-Subscription quota windows, and balance for vendors other than DeepSeek.
-`dsh-usage-stats` covers both; a worse copy of something already installed is
-not worth the code.
+Subscription quota windows, and balance for vendors other than DeepSeek. They
+were initially left out because neither was required for the first usable
+panel. Both were implemented later.
 
 ## Cost, restated
 
@@ -160,9 +160,9 @@ Everything above shipped. Four things the plan called wrong, recorded because
 each cost real time.
 
 **The bundler was imaginary.** "Cost" budgeted a tsdown pipeline and six peer
-dependencies. Reading how `dsh-usage-stats` ships its browser half showed none
-is needed: the module system materializes a registered factory and hands it a
-synchronous `require`, so React arrives from the host and
+dependencies. Reading the client module loader contract showed none is needed:
+the module system materializes a registered factory and hands it a synchronous
+`require`, so React arrives from the host and
 `window.__ModuleLoader__.load({id, factory})` is the whole contract. A hand-
 written file, no build step, no peers. The lesson is the same one that produced
 the `settings`-vs-`cordis.patch.yml` finding earlier: read how a working
