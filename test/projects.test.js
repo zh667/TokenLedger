@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import { LedgerStore, normalizeProject } from "../src/store.js";
-import { basename, describeProject, readProjectTitles } from "../src/projects.js";
+import { basename, describeProject, readProjectTitles, workspaceRegistry } from "../src/projects.js";
 import { applyUsageDelta } from "../src/usage.js";
 
 const DAY = "2026-08-17";
@@ -227,6 +227,34 @@ test("basename handles both separators and a trailing one", () => {
 	assert.equal(basename("C:\\work\\ledger"), "ledger");
 	assert.equal(basename("/home/me/ledger/"), "ledger");
 	assert.equal(basename("ledger"), "ledger");
+});
+
+test("the workspace registry is found under either name it has shipped as", async () => {
+	// `dsh-workspace@0.1.0-rc.6` provides `workspaceRegistry`; the 0.0.1-rc.x
+	// line npm's `latest` points at provides `workspace`. The API is identical,
+	// so only the name has to be tolerated — and asking for only one meant
+	// titles silently never resolved and every row fell back to its directory.
+	for (const name of ["workspaceRegistry", "workspace"]) {
+		const service = { resolveByPath: async () => ({ title: "Found" }) };
+		const ctx = { get: (asked) => (asked === name ? service : undefined) };
+		assert.equal(workspaceRegistry(ctx), service, name);
+		assert.equal((await readProjectTitles(["/a"], workspaceRegistry(ctx))).get("/a"), "Found", name);
+	}
+});
+
+test("the newer name wins when a composition somehow has both", async () => {
+	const registry = { resolveByPath: async () => undefined };
+	const legacy = { resolveByPath: async () => undefined };
+	const ctx = { get: (asked) => (asked === "workspaceRegistry" ? registry : asked === "workspace" ? legacy : undefined) };
+	assert.equal(workspaceRegistry(ctx), registry);
+});
+
+test("no registry under any name is undefined, not a throw", async () => {
+	assert.equal(workspaceRegistry({ get: () => undefined }), undefined);
+	assert.equal(workspaceRegistry({}), undefined);
+	assert.equal(workspaceRegistry(undefined), undefined);
+	// A context that refuses an undeclared name simply has not got it.
+	assert.equal(workspaceRegistry({ get: () => { throw new Error("not injected"); } }), undefined);
 });
 
 test("titles are looked up once per directory, not once per session", async () => {

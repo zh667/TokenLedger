@@ -28,7 +28,7 @@
 import { applyUsageDelta, dayKey } from "./usage.js";
 import { RelaySiteRegistry, SITE_TYPES, createSiteResolver, domainOf } from "./relay-sites.js";
 import { createFingerprintRegistry } from "./fingerprints.js";
-import { describeProject, readProjectTitles } from "./projects.js";
+import { describeProject, readProjectTitles, workspaceRegistry } from "./projects.js";
 import { discoverFromContext, mergeSites, withKnownSoftware } from "./discovery.js";
 import { createBalanceReader, listAccounts } from "./balance.js";
 import { VERSION, registerRoutes } from "./http.js";
@@ -592,7 +592,7 @@ export function apply(ctx, userConfig = {}) {
 	const refreshProjectTitles = async () => {
 		try {
 			const paths = store.byProject({}).map((row) => row.project);
-			projectTitles = await readProjectTitles(paths, ctx.get?.("workspace"));
+			projectTitles = await readProjectTitles(paths, workspaceRegistry(ctx));
 		} catch (error) {
 			// A row keeps its directory name. Nothing about the usage it holds is
 			// less true for want of a nicer label.

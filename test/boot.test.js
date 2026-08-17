@@ -165,16 +165,49 @@ test("a non-loopback caller is refused by the route, not served", async () => {
 	}
 });
 
-test("a service under any other name registers nothing, which is the whole bug", async () => {
-	// Proves the test above can fail. Provided as `webServer`, the routes do not
-	// appear — and the plugin still activates, which is exactly why this went
-	// unnoticed: a nested inject fiber is not an entry, so DSH's activation
-	// assertion never sees it hanging.
-	const webServer = httpServerStub();
-	const { ctx, fiber } = await boot(plugin, { sessionPersistence: persistence, webServer });
+test("either real name for the host's route registry works", async () => {
+	// `dsh-host-webserver@0.1.0-rc.6` provides `webServer`; the 0.0.1-rc.x line
+	// that npm's `latest` tag points at provides `httpServer`. Both are real,
+	// and asking for only one of them is how this panel 404'd for a week — the
+	// name was "verified" against a version the harness does not compose.
+	for (const name of ["webServer", "httpServer"]) {
+		const server = httpServerStub();
+		const { ctx, fiber } = await boot(plugin, { sessionPersistence: persistence, [name]: server });
+		try {
+			assert.equal(fiber.state, ACTIVE, name);
+			assert.deepEqual(
+				server.routes.map((route) => route.path).sort(),
+				["/api/tokenledger/balance", "/api/tokenledger/usage"],
+				`no routes registered against ${name}`
+			);
+		} finally {
+			await ctx.fiber?.dispose?.();
+		}
+	}
+});
+
+test("a name that is not one of them registers nothing, and still boots", async () => {
+	// Proves the test above can fail, and records why nothing reported the
+	// original bug: a nested inject fiber is not an entry, so DSH's activation
+	// assertion never sees it hanging. The plugin looks perfectly healthy.
+	const server = httpServerStub();
+	const { ctx, fiber } = await boot(plugin, { sessionPersistence: persistence, someOtherServer: server });
 	try {
 		assert.equal(fiber.state, ACTIVE, "it boots perfectly happily, serving nothing");
-		assert.deepEqual(webServer.routes, []);
+		assert.deepEqual(server.routes, []);
+	} finally {
+		await ctx.fiber?.dispose?.();
+	}
+});
+
+test("only one registration happens when both names are present", async () => {
+	// Two waits are outstanding. A composition providing both must not get the
+	// routes twice — the host throws on a duplicate path.
+	const webServer = httpServerStub();
+	const httpServer = httpServerStub();
+	const { ctx } = await boot(plugin, { sessionPersistence: persistence, webServer, httpServer });
+	try {
+		assert.equal(webServer.routes.length + httpServer.routes.length, 2, "registered twice, which the host rejects");
 	} finally {
 		await ctx.fiber?.dispose?.();
 	}

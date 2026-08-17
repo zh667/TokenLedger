@@ -208,6 +208,25 @@ export function usagePayload(deps, query) {
 }
 
 /**
+ * What the host's HTTP route registry is called, newest name first.
+ *
+ * Both are real. `@deepseek-ai/dsh-host-webserver@0.1.0-rc.6` — the line an
+ * 0.1.0-rc.6 harness composes — does `super(ctx, "webServer")`; the 0.0.1-rc.x
+ * line, which npm's `latest` tag still points at, says `httpServer`. Neither is
+ * a guess and neither can be dropped: a plugin installed beside either has to
+ * work.
+ *
+ * The way this was got wrong is worth more than the fix. `npm pack <pkg>`
+ * resolves the **`latest` dist-tag**, and for these packages `latest` is an
+ * OLDER line than the 0.1.0-rc.x actually in use. Reading the service name out
+ * of it looked like verification against upstream and was verification against
+ * a different version — so a correct name was "fixed" into a broken one while
+ * a sibling plugin in the same profile was serving 200s off the correct one.
+ * Check the version the composition resolves, not the one npm hands you.
+ */
+const WEB_SERVER_NAMES = ["webServer", "httpServer"];
+
+/**
  * Service names worth reporting when the one we want has not turned up.
  *
  * Not an exhaustive list of what a composition holds — there is no public way
@@ -217,14 +236,14 @@ export function usagePayload(deps, query) {
  * wrong thing" or "this composition genuinely has no web server".
  */
 const KNOWN_SERVICES = [
-	"httpServer",
-	"webServer",
+	...WEB_SERVER_NAMES,
 	"sessionPersistence",
 	"sessionQuery",
 	"settings",
 	"credentials",
 	"commands",
 	"llm",
+	"workspaceRegistry",
 	"workspace"
 ];
 
@@ -243,55 +262,55 @@ function visibleServices(ctx) {
 /**
  * Register the read-only routes, if this composition has a web server.
  *
- * `httpServer` is reached through a nested `inject` rather than the plugin's
- * own, for the same reason `commands` and `settings` are sampled: a headless
- * composition must still collect usage, and Cordis's `inject` has no optional
- * form, so a required declaration would refuse to load without a browser.
+ * Reached through a nested `inject` rather than the plugin's own, for the same
+ * reason `commands` and `settings` are: a headless composition must still
+ * collect usage, and Cordis's `inject` has no optional form, so a required
+ * declaration would refuse to load without a browser.
  *
- * @returns whether the routes were registered.
+ * @returns whether a wait was scheduled or the routes attached immediately.
  */
 export function registerRoutes(ctx, deps) {
-	// The service is `httpServer`. The PACKAGE is `dsh-host-webserver`, and
-	// naming the service after the package — `webServer` — is what shipped, so
-	// the nested fiber below waited on a name nothing provides and the routes
-	// were never registered. Upstream is unambiguous: `super(ctx, "httpServer")`.
-	//
-	// Nothing reported it. A nested `ctx.inject` is its own fiber, and DSH's
-	// activation assertion only covers top-level entries, so the host half
-	// "loaded" while the panel got a 404 from routes that did not exist.
-	//
-	// WAITED FOR, not sampled, for the separate reason recorded below: `ctx.get`
-	// at mount time answers undefined for a service that mounts later, which is
-	// how this same route silently vanished twice before. Name and lookup form
-	// are two independent ways to get this wrong and both have now been wrong.
 	if (typeof ctx.inject !== "function") {
-		const immediate = typeof ctx.get === "function" ? ctx.get("httpServer") : undefined;
-		if (immediate === undefined || typeof immediate.register !== "function") return false;
-		return attachRoutes(ctx, immediate, deps);
+		for (const name of WEB_SERVER_NAMES) {
+			const immediate = typeof ctx.get === "function" ? ctx.get(name) : undefined;
+			if (immediate !== undefined && typeof immediate.register === "function") return attachRoutes(ctx, immediate, deps);
+		}
+		return false;
 	}
+
 	// A nested inject that never fires is invisible: no error, no log, and the
 	// only symptom is a 404 in a browser console that says nothing about the
-	// host. Twice now that has cost days. So the wait announces itself, and says
-	// so again if it is still waiting — with the services that DO exist, because
-	// "which name is right" is the question that was actually wrong both times.
-	deps.logger?.info?.("tokenledger: waiting for httpServer to serve %s", BASE_PATH);
+	// host. So the wait announces itself, and says so again if it is still
+	// waiting — listing the services that DO exist, because "which name" is the
+	// question that has been wrong every single time.
+	deps.logger?.info?.("tokenledger: waiting for %s to serve %s", WEB_SERVER_NAMES.join(" or "), BASE_PATH);
 	let attached = false;
 	// Injectable so a test can reach this branch without sleeping through it.
 	const nagging = setTimeout(() => {
 		if (attached) return;
 		deps.logger?.warn?.(
-			"tokenledger: still no httpServer after 10s — the panel will 404. Services this context can see: %s",
+			"tokenledger: still no web server after 10s — the panel will 404. Services this context can see: %s",
 			visibleServices(ctx).join(", ") || "(none)"
 		);
 	}, deps.routeWaitMs ?? 10_000);
 	nagging.unref?.();
 
-	ctx.inject(["httpServer"], (scoped) => {
-		attached = true;
-		clearTimeout(nagging);
-		attachRoutes(scoped, scoped.httpServer, deps);
-		deps.logger?.info?.("tokenledger: serving %s and %s", USAGE_PATH, BALANCE_PATH);
-	});
+	// One wait per name, first to arrive wins. Both are real: whichever this
+	// composition happens to provide is the right one, and asking for only the
+	// other is precisely how the panel 404'd for a week.
+	for (const name of WEB_SERVER_NAMES) {
+		ctx.inject([name], (scoped) => {
+			// Both the already-attached case and the wrong-shape case. Two waits
+			// are outstanding and only one composition can satisfy either, so the
+			// callback has to be able to decline.
+			const server = scoped?.[name];
+			if (attached || server === undefined || typeof server.register !== "function") return;
+			attached = true;
+			clearTimeout(nagging);
+			attachRoutes(scoped, server, deps);
+			deps.logger?.info?.("tokenledger: serving %s and %s via %s", USAGE_PATH, BALANCE_PATH, name);
+		});
+	}
 	return true;
 }
 

@@ -69,7 +69,7 @@ test("only services the plugin genuinely cannot start without are injected", asy
 	assert.equal(inject.includes("workspace"), false, "titles are a nicety; requiring them would trade the panel for a label");
 
 	const source = readFileSync(new URL("../src/plugin.js", import.meta.url), "utf8");
-	assert.match(source, /ctx\.get\?\.\("workspace"\)/, "and it has to actually be read through the tolerant door");
+	assert.match(source, /workspaceRegistry\(ctx\)/, "and it has to actually be read through the tolerant door");
 });
 
 test("declaring dsh.client obliges the package to export ./client", () => {
