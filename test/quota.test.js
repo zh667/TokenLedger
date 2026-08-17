@@ -152,11 +152,12 @@ test("windows are ordered by clock length, whatever order they arrived in", () =
 			{ kind: "billing", usedPercent: 1 },
 			{ kind: "monthly", usedPercent: 2 },
 			{ kind: "weekly", usedPercent: 3 },
+			{ kind: "daily", usedPercent: 5 },
 			{ kind: "session", usedPercent: 4 }
 		],
 		{ now: NOW }
 	);
-	assert.deepEqual(windows.map((w) => w.kind), ["session", "weekly", "monthly", "billing"]);
+	assert.deepEqual(windows.map((w) => w.kind), ["session", "daily", "weekly", "monthly", "billing"]);
 });
 
 test("one kind appears once, and the first source wins", () => {

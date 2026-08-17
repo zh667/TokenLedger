@@ -68,7 +68,7 @@ dsh plugin --profile web remove dsh-tokenledger
 | --- | --- | --- | --- |
 | DeepSeek 官方 | 余额 | provider 的 `apiKeyEnv` | `/user/balance` |
 | New API 系（含 One API、VoAPI 等分支） | 额度 | provider 的 `apiKeyEnv` | `/api/usage/token/` + `/api/status` |
-| Sub2API | 余额 | provider 的 `apiKeyEnv` | `/v1/usage` |
+| Sub2API | 余额 / 额度 / 订阅 | provider 的 `apiKeyEnv` | `/v1/usage` |
 | Moonshot / Kimi | 余额 | provider 的 `apiKeyEnv` | `/v1/users/me/balance` |
 | 智谱 GLM / Z.ai | 余额 | provider 的 `apiKeyEnv` | `/api/paas/v4/balance` |
 | OpenRouter | 余额 | **Management Key** | `/api/v1/credits` |
@@ -88,6 +88,8 @@ OpenCode Go 那条的"本机 `auth.json`"是个便利：路由上没配 `apiKeyE
 中转站跑的是哪套程序由路由指纹自动判定，第一次查余额时探测一次并记住。厂商自己的域名不需要探测——origin 直接决定用哪套读法，而且同一厂商的多条路由会合并成一个账户（一个钱包），这跟中转站正好相反。
 
 New API 的额度是**按 key** 的：同一个站上两把 key 是两份额度，面板分别列出。
+
+Sub2API 的 `/v1/usage` 有三种形态，面板都认：key 配了总额度或速率限制的，读额度和 5 小时 / 每日 / 每周三个窗口；key 属于套餐分组的，读日/周/月周期；剩下的是钱包余额。**只有最后一种带 `balance` 字段**，所以前两种以前是一张空卡。
 
 ## 配置 / Configuration
 

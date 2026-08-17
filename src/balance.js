@@ -111,6 +111,70 @@ export function vendorOf(baseUrl) {
 	}
 }
 
+/** A trimmed non-empty string, or undefined. */
+function label(value) {
+	const text = typeof value === "string" ? value.trim() : "";
+	return text === "" ? undefined : text;
+}
+
+/**
+ * Sub2API's per-key rate-limit windows.
+ *
+ * The gateway names its windows by duration. `5h` is the only one whose length
+ * is worth carrying: `daily` and `weekly` already say how long they are, and a
+ * length there would only repeat the label.
+ */
+const SUB2API_WINDOWS = new Map([
+	["5h", { kind: "session", minutes: 300 }],
+	["1d", { kind: "daily" }],
+	["7d", { kind: "weekly" }]
+]);
+
+function sub2apiRateLimits(list) {
+	if (!Array.isArray(list)) return [];
+	return list
+		.map((entry) => {
+			const shape = SUB2API_WINDOWS.get(entry?.window);
+			if (shape === undefined) return undefined;
+			return {
+				...shape,
+				used: toNumber(entry.used),
+				limit: toNumber(entry.limit),
+				// Absent once the window has lapsed, which is the gateway saying
+				// the next request starts a fresh one. Nothing to show.
+				...(entry.reset_at === undefined || entry.reset_at === null ? {} : { resetsAt: entry.reset_at })
+			};
+		})
+		.filter(Boolean);
+}
+
+/** One week after a window opened, which is when Sub2API rolls it over. */
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Sub2API's subscription periods.
+ *
+ * A limit that is null means the group does not cap that period; `quota.js`
+ * drops a window with no positive limit, so those disappear on their own rather
+ * than being drawn as empty bars.
+ */
+function sub2apiPeriods(subscription) {
+	if (subscription === null || typeof subscription !== "object") return [];
+	const openedAt = Date.parse(subscription.weekly_window_start ?? "");
+	return [
+		{ kind: "daily", used: subscription.daily_usage_usd, limit: subscription.daily_limit_usd },
+		{
+			kind: "weekly",
+			used: subscription.weekly_usage_usd,
+			limit: subscription.weekly_limit_usd,
+			// The gateway reports when the window OPENED; the panel asks when it
+			// frees up. Only the second is worth showing.
+			...(Number.isNaN(openedAt) ? {} : { resetsAt: new Date(openedAt + WEEK_MS).toISOString() })
+		},
+		{ kind: "monthly", used: subscription.monthly_usage_usd, limit: subscription.monthly_limit_usd }
+	];
+}
+
 /** Host for display, carrying a non-default port so two on one machine differ. */
 function hostLabel(origin) {
 	const url = new URL(origin);
@@ -318,15 +382,60 @@ export const SCHEMES = {
 
 	sub2api: {
 		label: "Sub2API",
+		/**
+		 * `/v1/usage` answers in one of three shapes, and only one of them has a
+		 * `balance`.
+		 *
+		 * - **quota_limited** — the key carries a total quota, or per-window rate
+		 *   limits, or both. Read against the gateway's own handler: `quota`
+		 *   holds the money, `rate_limits[]` holds one entry per configured
+		 *   window (`5h`, `1d`, `7d`) with a `reset_at` that is only present
+		 *   while the window is still open.
+		 * - **unrestricted + subscription** — no key-level limit, but the key's
+		 *   group is a plan. The periods live under `subscription` as paired
+		 *   `*_usage_usd` / `*_limit_usd` figures, and there is no `balance`.
+		 * - **unrestricted + wallet** — the original shape, and the only one that
+		 *   sends `balance`.
+		 *
+		 * The previous reader knew only the third. On the other two it found no
+		 * `balance`, reported no amount, and dropped the windows on the floor —
+		 * a plan user saw a card with nothing on it. `remaining` was read and
+		 * then never rendered anywhere, which is why nobody noticed.
+		 */
 		async read({ origin, get }) {
 			const body = await get(new URL("/v1/usage", origin).href);
-			const currency = body?.unit ?? undefined;
+			const currency = typeof body?.unit === "string" ? body.unit : undefined;
+
+			// `isValid` stays true for a key that is out of quota or past its
+			// expiry — upstream means "we recognise this key", not "you can spend
+			// on it". The card's green/amber line is about the latter.
+			const status = typeof body?.status === "string" ? body.status : undefined;
+			const usable = body?.isValid !== false && status !== "quota_exhausted" && status !== "expired" && status !== "disabled";
+
+			const subscription = body?.subscription;
+			const quota = body?.quota;
+			const windows = [...sub2apiRateLimits(body?.rate_limits), ...sub2apiPeriods(subscription)];
+
+			// -1 is the gateway's "no period limit is configured", not a debt.
+			const remaining = toNumber(body?.remaining);
+			const unlimited = subscription !== undefined && remaining === -1;
+
+			const amount = quota !== undefined
+				? { total: toNumber(quota.remaining), granted: toNumber(quota.limit), used: toNumber(quota.used) }
+				: subscription !== undefined
+					? { total: unlimited ? undefined : remaining }
+					: { total: toNumber(body?.balance) };
+
 			return {
-				isAvailable: body?.isValid !== false,
+				isAvailable: usable,
 				currency,
-				total: toNumber(body?.balance),
-				remaining: toNumber(body?.remaining),
-				plan: body?.planName ?? undefined
+				...amount,
+				...(unlimited ? { unlimited: true } : {}),
+				// Only a real plan gets a plan line. The wallet shape sends a
+				// `planName` too, and it is a placeholder — rendering it produces
+				// a card that says the account is on a plan called "wallet".
+				...(subscription === undefined ? {} : { plan: label(body?.planName) }),
+				windows
 			};
 		}
 	}

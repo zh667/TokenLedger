@@ -42,7 +42,7 @@
  * The order is the display order: shortest clock first, because that is the one
  * that stops you working.
  */
-export const WINDOW_KINDS = ["session", "weekly", "monthly", "billing"];
+export const WINDOW_KINDS = ["session", "daily", "weekly", "monthly", "billing"];
 
 /** Parse a number a JSON API may have sent as a string. */
 function toNumber(value) {
