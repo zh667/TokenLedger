@@ -69,13 +69,24 @@ export const name = "tokenledger";
  * forever. The optional-capability idiom in this codebase is `ctx.get(name)`,
  * which returns the service or undefined without registering a dependency.
  */
-export const inject = {
-	required: ["sessionPersistence"],
-	// `workspace` only supplies display names for project directories. A
-	// composition without it still gets the whole per-project breakdown, named
-	// by directory, so requiring it would trade a real capability for a label.
-	optional: ["workspace"]
-};
+/**
+ * Services this plugin cannot start without.
+ *
+ * **An array, never an object.** Cordis reads an object `inject` as a
+ * `name -> intercept config` map, not as `{ required, optional }` — every key
+ * becomes a REQUIRED service name. Declaring the latter asked for two services
+ * called `required` and `optional`, neither of which exists, so the plugin sat
+ * pending forever and DSH's activation assertion took the whole host down with
+ * it. `dsh web` did not start.
+ *
+ * This version of Cordis has no notion of an optional dependency at all:
+ * `Inject.resolve` puts every declared name in one table with no strength
+ * attached. Something a plugin can work without is therefore NOT declared here
+ * — it is read with `ctx.get(name)`, which returns `undefined` when the service
+ * is absent rather than throwing. `workspace` is read that way, per sweep, so a
+ * service that mounts later is picked up on its own.
+ */
+export const inject = ["sessionPersistence"];
 
 /** Defaults chosen so an unconfigured mount still does something useful. */
 const DEFAULTS = {

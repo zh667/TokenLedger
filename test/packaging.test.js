@@ -39,6 +39,39 @@ test("the resolve the scanner performs actually succeeds", () => {
 	}
 });
 
+test("inject is a flat array of names, because an object means something else", async () => {
+	// Cordis normalizes an object `inject` as a `name -> intercept config` map:
+	//
+	//   if (Array.isArray(inject)) for (const name of inject) result[name] = null;
+	//   else for (const name of Object.keys(inject)) result[name] = inject[name] ?? null;
+	//
+	// So `{ required: [...], optional: [...] }` does not mean what it reads like.
+	// It asks for two services named `required` and `optional`. Neither exists,
+	// the plugin stays pending, and DSH's activation assertion fails the whole
+	// boot — `dsh web` did not start at all. That shipped once.
+	//
+	// The test that should have caught it was widened in the same commit to
+	// accept the object, which is worse than having no test: it reported the bug
+	// as verified.
+	const { inject } = await import("../src/plugin.js");
+	assert.ok(Array.isArray(inject), "an object inject is a config map, not a required/optional split");
+	for (const name of inject) assert.equal(typeof name, "string", `${String(name)} must be a bare service name`);
+});
+
+test("only services the plugin genuinely cannot start without are injected", async () => {
+	// This Cordis has no optional dependency: every declared name is required,
+	// and a missing one takes the host down rather than degrading a feature.
+	// Anything the plugin can work without is read with `ctx.get(name)`, which
+	// answers `undefined` instead of throwing — `workspace` is read that way,
+	// so a per-project row falls back to its directory name and nothing breaks.
+	const { inject } = await import("../src/plugin.js");
+	assert.deepEqual(inject, ["sessionPersistence"]);
+	assert.equal(inject.includes("workspace"), false, "titles are a nicety; requiring them would trade the panel for a label");
+
+	const source = readFileSync(new URL("../src/plugin.js", import.meta.url), "utf8");
+	assert.match(source, /ctx\.get\?\.\("workspace"\)/, "and it has to actually be read through the tolerant door");
+});
+
 test("declaring dsh.client obliges the package to export ./client", () => {
 	// The scanner throws on this mismatch rather than skipping the package.
 	if (pkg.dsh?.client === undefined) return;
@@ -50,10 +83,7 @@ const root = await import("../src/index.js");
 
 test("the package root is a valid Cordis plugin, because the entry name points at it", async () => {
 	assert.equal(typeof root.apply, "function", "a bare entry name loads the root export as the plugin");
-	// Cordis accepts either an array or `{ required, optional }`. The object
-	// form is what lets a service supply a nicety — project display names —
-	// without its absence withholding the capability underneath.
-	assert.ok(Array.isArray(root.inject) || Array.isArray(root.inject?.required));
+	assert.ok(Array.isArray(root.inject));
 	assert.equal(typeof root.name, "string");
 });
 
