@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { normalizeRelayConfig, sweep } from "../src/plugin.js";
+import { normalizeRelayConfig, staleAttributions, sweep } from "../src/plugin.js";
 import { LedgerStore } from "../src/store.js";
 import { RelaySiteRegistry, createSiteResolver } from "../src/relay-sites.js";
 
@@ -144,6 +144,75 @@ test("a listSnapshots failure degrades instead of throwing into DSH", async () =
 		const stats = await sweep(persistence, store, { logger: { warn() {} } });
 		assert.equal(stats.failed, 1);
 		assert.equal(stats.scanned, 0);
+	});
+});
+
+// --- the index can drift from the directory ------------------------------------
+
+/** A directory that resolves `nine` to a relay and knows nothing else. */
+function liveDirectory() {
+	const registry = new RelaySiteRegistry([{ id: "nine", type: "newapi", baseUrl: "https://api.relay-one.example/v1" }]);
+	const providerBaseUrls = { ninerelay: "https://api.relay-one.example/v1" };
+	return { available: true, providerBaseUrls, resolveSite: createSiteResolver(registry, providerBaseUrls) };
+}
+
+/** Fold `events` into a fresh store using `resolveSite`. */
+async function indexedWith(store, id, events, resolveSite) {
+	await sweep(fakePersistence(new Map([[id, { revision: id, events }]])), store, { resolveSite });
+}
+
+test("a route recorded under a site the directory no longer agrees with is stale", async () => {
+	// The shape a real install reached: the fold is INCREMENTAL, so a session
+	// first folded before the directory knew a route keeps those rows while its
+	// later events attribute correctly. One route, two sites, 229k tokens of it
+	// under "direct/official".
+	await withStore(async (store) => {
+		const directory = liveDirectory();
+		const blind = createSiteResolver(new RelaySiteRegistry([]), {});
+		await indexedWith(store, "s1", [header("ninerelay", "gpt"), message(1, 1, "ninerelay", "gpt", { inputTokens: 100, outputTokens: 0 })], blind);
+
+		const stale = staleAttributions(store, directory);
+		assert.deepEqual(stale, [{ site: "unrouted", provider: "ninerelay", expected: "nine" }]);
+	});
+});
+
+test("an index that agrees with the directory is not rebuilt", async () => {
+	// Without this the check would rebuild on every sweep, which is a rebuild
+	// loop wearing the costume of a fix.
+	await withStore(async (store) => {
+		const directory = liveDirectory();
+		await indexedWith(store, "s1", [header("ninerelay", "gpt"), message(1, 1, "ninerelay", "gpt", { inputTokens: 100, outputTokens: 0 })], directory.resolveSite);
+		assert.deepEqual(staleAttributions(store, directory), []);
+	});
+});
+
+test("a genuinely direct route is not mistaken for drift", async () => {
+	await withStore(async (store) => {
+		const registry = new RelaySiteRegistry([{ id: "nine", type: "newapi", baseUrl: "https://api.relay-one.example/v1" }]);
+		const providerBaseUrls = { ninerelay: "https://api.relay-one.example/v1", official: "https://api.deepseek.com" };
+		const directory = { available: true, providerBaseUrls, resolveSite: createSiteResolver(registry, providerBaseUrls) };
+		await indexedWith(store, "s1", [header("official", "v4"), message(1, 1, "official", "v4", { inputTokens: 10, outputTokens: 0 })], directory.resolveSite);
+		assert.deepEqual(staleAttributions(store, directory), []);
+	});
+});
+
+test("a directory that could not be read proves nothing about the index", async () => {
+	// Discovery being down makes every route look unresolvable. Acting on that
+	// would rebuild the whole index into a worse state than it started in.
+	await withStore(async (store) => {
+		const directory = liveDirectory();
+		await indexedWith(store, "s1", [header("ninerelay", "gpt"), message(1, 1, "ninerelay", "gpt", { inputTokens: 100, outputTokens: 0 })], directory.resolveSite);
+		assert.deepEqual(staleAttributions(store, { ...directory, available: false }), []);
+		assert.deepEqual(staleAttributions(store, undefined), []);
+	});
+});
+
+test("rows with no route at all are left alone", async () => {
+	// `provider = unknown` has nothing to resolve; it is already counted by the
+	// unattributed diagnostic and must not drive a rebuild that cannot fix it.
+	await withStore(async (store) => {
+		await indexedWith(store, "s1", [message(1, 1, undefined, undefined, { inputTokens: 10, outputTokens: 0 })], liveDirectory().resolveSite);
+		assert.deepEqual(staleAttributions(store, liveDirectory()), []);
 	});
 });
 
