@@ -1,6 +1,6 @@
 # TokenLedger Roadmap
 
-Updated: 2026-08-15
+Updated: 2026-08-17
 
 ## Product definition
 
@@ -47,6 +47,148 @@ codebase as a library — see [Not doing](#not-doing-reconciliation).
 Verified against a real install throughout, and against the relay's own console
 line by line: three requests at 45,752 + 45,682 + 45,467 = 136,901 prompt tokens
 and 428 + 58 + 207 = 693 output, matching the panel exactly.
+
+## Proposed next roadmap (2026-08-17)
+
+**Status: proposed, not approved** ([issue #44](https://github.com/zh667/TokenLedger/issues/44)).
+This section records the gaps found in a market review; each item still needs
+the repository owner's approval before it becomes implementation work. The
+order is deliberate: turn the accurate local ledger into a decision tool before
+adding broader platform integrations.
+
+### Position
+
+Representative products fall into four groups:
+
+| Group | Representative capability | What it establishes |
+|---|---|---|
+| Local log readers | Session/block reports, burn rate, projected totals and limit warnings ([ccusage](https://github.com/ccusage/ccusage/blob/main/docs/guide/blocks-reports.md)) | Local-only tools can provide forecasts and warnings without intercepting traffic. |
+| AI gateways | Per-project/user spend, budgets, rate limits and virtual keys ([LiteLLM](https://docs.litellm.ai/), [Portkey](https://portkey.ai/docs/product/ai-gateway/virtual-keys/budget-limits)) | Mature spend control exists, but only after the gateway owns the request path and credentials. |
+| LLM observability | Session/user dimensions, cost and latency trends, errors, dashboards and alerts ([Langfuse](https://langfuse.com/docs/metrics/overview), [LangSmith](https://docs.langchain.com/langsmith/dashboards), [Helicone](https://docs.helicone.ai/features/sessions)) | The useful layer above counting is drill-down: explain where a spike came from and whether it was costly, slow or broken. |
+| Provider billing | Organization/project usage and invoice-reconcilable costs ([OpenAI](https://help.openai.com/en/articles/10478918-api-usage-dashboard), [Anthropic](https://platform.claude.com/docs/en/manage-claude/usage-cost-api)) | Provider reports are the financial source of truth, but frequently require organization/admin authority and do not unify relays. |
+
+TokenLedger's advantage is narrower and defensible: DSH-native, local,
+credential-free accounting that attributes usage to the relay origin and
+project while never reading conversation content. It is already strong at
+**measurement**. The gap is turning that measurement into answers to four
+questions:
+
+1. What became unusually expensive?
+2. Which session, project, model or relay caused it?
+3. At the current rate, when will a quota or budget be exhausted?
+4. How much of the displayed cost is known rather than guessed?
+
+### P0 — decision support without changing the product boundary
+
+#### 1. Session drill-down
+
+Expose the session dimension the SQLite rollups already retain:
+
+- project → session → relay/model breakdown;
+- start time, last actual usage time, request count and token buckets;
+- estimated cost and pricing coverage;
+- an anonymized session identifier, not prompts, titles or message text.
+
+It is done when a user can start from a high project/day total and identify the
+specific sessions responsible without reading raw logs. The query must come
+from existing metadata; no content field may be opened merely to make a label.
+
+#### 2. Time trends and period comparison
+
+Add arbitrary date ranges and day/week/month granularity, with:
+
+- stacked input/output/cache token trends;
+- relay, project and model series;
+- previous-period deltas;
+- cumulative cost and peak-day links into the session view.
+
+It is done when "why is this week higher than last week?" can be answered in
+the panel rather than by exporting CSV and building a second report.
+
+#### 3. Soft budgets, burn rate and local alerts
+
+Support optional token and cost budgets for the whole machine and for a relay,
+project or model. Show current tokens/hour and cost/hour, projected period-end
+usage, and estimated exhaustion time. Warn at configurable thresholds and when
+subscription windows approach exhaustion or reset.
+
+These are **soft** budgets: local notifications and visible warnings only.
+TokenLedger does not become a proxy and does not block a request. Forecasts
+must say which observation window they use and must degrade to "insufficient
+data" rather than inventing confidence.
+
+#### 4. Pricing provenance and coverage
+
+Preserve the current effective-dated, bucket-aware rate engine and add:
+
+- a bundled, updateable catalog for common models;
+- source, currency, effective date and catalog version on every rate;
+- percentage of tokens and requests with known pricing;
+- explicit separation of estimated cost from provider-reported cost;
+- aliases and user overrides for relay-specific model names and multipliers.
+
+Price updates must never silently apply today's rate to historical usage. An
+unknown model remains unpriced rather than becoming zero-cost.
+
+#### 5. Data-quality center
+
+Turn diagnostics into a user-facing explanation of trust in the totals:
+
+- unknown-route, unknown-model, unpriced and missing-project shares;
+- log count, indexed count, failures and index lag;
+- latest actual usage time separate from latest refresh/index time;
+- timezone/day-boundary disclosure;
+- proof that site/project/model subtotals reconcile to the same grand total;
+- direct actions for a stale route directory or a required reindex.
+
+It is done when a mismatch has a named bucket and a next action instead of a
+plausible but false label.
+
+### P1 — metadata-only observability and integrations
+
+#### 6. Request health, only where the DSH log proves it
+
+Add request counts, billed failures, cancellations, retries and latency
+percentiles only for fields the host log exposes reliably. Never infer latency
+from index timestamps, and never present absence of an event as success.
+
+#### 7. Local anomaly detection
+
+Detect cost/token spikes, a newly observed relay or model, sudden cache-hit
+regression and attribution/pricing coverage drops. Start with transparent
+rules and historical percentiles; every alert must show the baseline and the
+rows that triggered it.
+
+#### 8. Stable query and export surface
+
+Version the read-only query API; add paginated session/range queries, NDJSON
+incremental export and optional scheduled local reports. Prometheus or
+OpenTelemetry metrics may follow, but only for numeric usage and non-content
+labels. CSV/JSON compatibility remains part of the public contract.
+
+### Explicit non-goals
+
+Do not turn TokenLedger into:
+
+- an LLM gateway, router, retry layer or cache;
+- a virtual-key issuer, RBAC system or hard rate limiter;
+- a prompt/response trace store, prompt manager or evaluation platform;
+- a mandatory cloud account or cross-user surveillance service.
+
+Those are different trust boundaries. Integrate through metadata-only exports
+when useful instead of taking ownership of traffic, credentials or content.
+
+### Recommended implementation order
+
+1. Session drill-down and its store/query contract.
+2. Trends and previous-period comparison on the same query dimensions.
+3. Soft budgets, burn-rate forecasts and local alerts.
+4. Pricing catalog/provenance and the data-quality center.
+5. Only then evaluate request-health metadata, anomalies and external metrics.
+
+The success criterion is not feature count. TokenLedger should move from "the
+numbers add up" to "the user can locate, explain and anticipate the spend"
+without weakening the zero-configuration, local and content-blind guarantees.
 
 ## Approved plan (2026-08-15)
 
