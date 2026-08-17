@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
 	DIRECT,
+	UNROUTED,
 	UNKNOWN,
 	applyUsageDelta,
 	byModel,
@@ -199,6 +200,57 @@ test("relay sites are resolved at fold time and split the routes", () => {
 
 	assert.equal(byModel(days).length, 1, "one model overall");
 	assert.equal(byModel(days, {}, "nine")[0].inputTokens, 100, "filtering by site narrows it");
+});
+
+// --- direct is a claim, not a fallback -----------------------------------------
+
+test("a route absent from the directory is unrouted, not direct", () => {
+	// A real install read 88% of its tokens as "direct/official" because a relay
+	// route had since been renamed. `direct` says the call went to the vendor.
+	// We did not know that; we knew only that the route was unrecognised.
+	const registry = new RelaySiteRegistry([{ id: "nine", type: "newapi", baseUrl: "https://api.relay-one.example" }]);
+	const resolveSite = createSiteResolver(registry, {
+		relayA: "https://api.relay-one.example",
+		official: "https://api.deepseek.com"
+	});
+
+	const siteOf = (route) => {
+		const days = foldUsage([message(1, 1, route, "v4", usage(10, 1), DAY_A)], { resolveSite });
+		return [...[...days.values()][0].routes.keys()][0].split("\u0000")[0];
+	};
+
+	assert.equal(siteOf("relayA"), "nine", "configured and pointing at a relay");
+	assert.equal(siteOf("official"), DIRECT, "configured and pointing at the vendor");
+	assert.equal(siteOf("vanished"), UNROUTED, "not in the directory at all");
+});
+
+test("the resolver answers three different things, and says which", () => {
+	const registry = new RelaySiteRegistry([{ id: "nine", type: "newapi", baseUrl: "https://api.relay-one.example" }]);
+	const resolveSite = createSiteResolver(registry, {
+		relayA: "https://api.relay-one.example",
+		official: "https://api.deepseek.com"
+	});
+	assert.equal(resolveSite("relayA"), "nine");
+	assert.equal(resolveSite("official"), DIRECT, "present in the directory, so this IS a claim about where it went");
+	assert.equal(resolveSite("vanished"), undefined, "absent from the directory, so there is nothing to claim");
+	// Cached answers must keep the distinction too.
+	assert.equal(resolveSite("official"), DIRECT);
+	assert.equal(resolveSite("vanished"), undefined);
+});
+
+test("re-adding the route re-attributes its history", () => {
+	// The recovery path, and the reason mislabelled traffic is not lost traffic:
+	// the rollup row keeps the ROUTE name, so a later fold against a directory
+	// that knows the route puts it back where it belongs.
+	const registry = new RelaySiteRegistry([{ id: "nine", type: "newapi", baseUrl: "https://api.relay-one.example" }]);
+	const events = [message(1, 1, "relayA", "v4", usage(10, 1), DAY_A)];
+
+	const before = foldUsage(events, { resolveSite: createSiteResolver(registry, {}) });
+	const after = foldUsage(events, { resolveSite: createSiteResolver(registry, { relayA: "https://api.relay-one.example" }) });
+
+	const siteOf = (days) => [...[...days.values()][0].routes.keys()][0].split("\u0000")[0];
+	assert.equal(siteOf(before), UNROUTED);
+	assert.equal(siteOf(after), "nine");
 });
 
 test("sumRange honours inclusive bounds and the site filter", () => {

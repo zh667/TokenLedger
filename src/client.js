@@ -654,9 +654,15 @@ window.__ModuleLoader__.load({
 		 * distinction between "the vendor" and "someone reselling the vendor" is
 		 * the section's whole subject. Relays cycle a fixed palette rather than a
 		 * generated hue, so the same site keeps the same colour across reloads.
+		 *
+		 * `unrouted` is outside it too, and for a sharper reason: it is not a
+		 * place, it is the absence of one. Giving it a relay colour would put an
+		 * unknown on equal footing with the sites we can actually name.
 		 */
 		function colorOf(site, index) {
-			return site === "direct" ? "var(--tkl-direct)" : `var(--tkl-series-${index % 6})`;
+			if (site === "direct") return "var(--tkl-direct)";
+			if (site === "unrouted") return "var(--tkl-level-0)";
+			return `var(--tkl-series-${index % 6})`;
 		}
 
 		/**
@@ -719,9 +725,12 @@ window.__ModuleLoader__.load({
 			const byId = new Map((data.directory ?? []).map((d) => [d.id, d]));
 			// Relays take the ramp in the order they appear; `direct` sits outside
 			// it, so it must not consume a slot and shift everyone else.
+			// `direct` and `unrouted` both sit outside the relay ramp: neither is a
+			// relay, and letting either consume a slot shifts every real site's
+			// colour.
 			let relay = -1;
 			const coloured = rows.map((row) => {
-				if (row.site !== "direct") relay += 1;
+				if (row.site !== "direct" && row.site !== "unrouted") relay += 1;
 				return { ...row, color: colorOf(row.site, relay) };
 			});
 
@@ -751,7 +760,7 @@ window.__ModuleLoader__.load({
 						children: coloured.map((row) => {
 							const id = row.site;
 							const known = byId.get(id);
-							const label = id === "direct" ? translate("sites.direct") : id;
+							const label = id === "direct" ? translate("sites.direct") : id === "unrouted" ? translate("sites.unrouted") : id;
 							const routes = known?.routes?.length ? known.routes.join(", ") : undefined;
 							return jsxs(
 								"button",
@@ -1656,6 +1665,7 @@ window.__ModuleLoader__.load({
 			"caption.hit": "缓存命中 {rate}",
 			"caption.cost": "估算 {cost}",
 			"sites.direct": "直连/官方",
+			"sites.unrouted": "未知路由",
 			"sites.none": "没有发现中转站——直连的话这就是全部。",
 			"activity.none": "这个区间内没有活跃记录。",
 			"activity.level": "等级 {level}",
@@ -1750,6 +1760,7 @@ window.__ModuleLoader__.load({
 			"caption.hit": "{rate} cached",
 			"caption.cost": "est. {cost}",
 			"sites.direct": "Direct",
+			"sites.unrouted": "Unrecognised route",
 			"sites.none": "No relay sites found — if you go direct, this is all of it.",
 			"activity.none": "No activity in this range.",
 			"activity.level": "Level {level}",

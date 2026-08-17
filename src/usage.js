@@ -51,6 +51,25 @@ export const UNKNOWN = "unknown";
 /** Route site component for calls that did not go through a configured relay. */
 export const DIRECT = "direct";
 
+/**
+ * Traffic through a route the provider directory does not contain.
+ *
+ * Distinct from `DIRECT`, and the distinction is the whole point. A route that
+ * is configured and simply does not point at a relay went straight to the
+ * vendor — that is `direct`, and it is a fact. A route the directory has never
+ * heard of (renamed since, removed since, or configured somewhere this plugin
+ * cannot see) went SOMEWHERE, and we do not know where.
+ *
+ * These were one bucket, and a real install showed 88% of its tokens under
+ * "direct/official" when much of that had gone through a relay whose route no
+ * longer resolved. Reporting an unknown as a specific answer is the failure
+ * this codebase guards against everywhere else; it had a hole here.
+ *
+ * The rollup row keeps the route name either way, so nothing is lost by having
+ * been mislabelled, and re-adding the route re-attributes the history.
+ */
+export const UNROUTED = "unrouted";
+
 const SEP = "\u0000";
 
 /** Local-calendar `YYYY-MM-DD` key for a millisecond epoch. */
@@ -292,7 +311,10 @@ export function applyUsageDelta(state, events, options = {}) {
 		const provenance = provenanceOf(event) ?? currentRoute;
 		const provider = provenance?.provider ?? UNKNOWN;
 		const model = provenance?.model ?? UNKNOWN;
-		const site = (provider === UNKNOWN ? null : resolveSite(provider)) || DIRECT;
+		// Three answers, not two. `undefined` from the resolver means the route
+		// is absent from the directory — which is not the same as a route that
+		// is present and points at no relay.
+		const site = provider === UNKNOWN ? DIRECT : (resolveSite(provider) ?? UNROUTED);
 		const key = routeKey(site, provider, model);
 
 		const day = dayKey(event.time);

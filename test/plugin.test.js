@@ -152,7 +152,12 @@ test("relay attribution flows through the sweep", async () => {
 		const registry = new RelaySiteRegistry([
 			{ id: "nine", type: "newapi", baseUrl: "https://api.relay-one.example/v1" }
 		]);
-		const resolveSite = createSiteResolver(registry, { ninerelay: "https://api.relay-one.example/v1" });
+		// Three routes, three different answers. `official` is configured and
+		// points at no relay; `elsewhere` is not in the directory at all.
+		const resolveSite = createSiteResolver(registry, {
+			ninerelay: "https://api.relay-one.example/v1",
+			official: "https://api.deepseek.com"
+		});
 		const sessions = new Map([
 			[
 				"s1",
@@ -161,7 +166,8 @@ test("relay attribution flows through the sweep", async () => {
 					events: [
 						header("ninerelay", "gpt"),
 						message(1, 1, "ninerelay", "gpt", { inputTokens: 100, outputTokens: 10 }),
-						message(2, 1, "elsewhere", "gpt", { inputTokens: 20, outputTokens: 2 })
+						message(2, 1, "official", "gpt", { inputTokens: 20, outputTokens: 2 }),
+						message(3, 1, "elsewhere", "gpt", { inputTokens: 7, outputTokens: 1 })
 					]
 				}
 			]
@@ -172,8 +178,13 @@ test("relay attribution flows through the sweep", async () => {
 		assert.deepEqual(
 			sites.map((s) => [s.site, s.inputTokens]).sort(),
 			[
+				// Configured, points at the vendor. Genuinely direct.
 				["direct", 20],
-				["nine", 100]
+				["nine", 100],
+				// NOT in the directory. We do not know where this went, and
+				// saying "direct/official" would be inventing an answer — a real
+				// install showed 88% of its tokens that way.
+				["unrouted", 7]
 			].sort()
 		);
 	});
