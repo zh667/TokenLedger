@@ -43,7 +43,44 @@ export function buildSchema(z) {
 		})
 	]);
 
+	// One declared window. `kind` and `minutes` are values; every other field is
+	// a dotted PATH into the response body. The split is deliberate: a window's
+	// name and length are facts about the plan, and everything else is a
+	// location in a document only the user has seen.
+	const declaredWindow = z.object({
+		kind: z.string(),
+		minutes: z.number(),
+		usedPercent: z.string(),
+		usedRatio: z.string(),
+		remainingPercent: z.string(),
+		used: z.string(),
+		limit: z.string(),
+		resetsAt: z.string(),
+		resetInSeconds: z.string()
+	});
+
+	// A balance endpoint for a vendor with no built-in reader. See
+	// `declarative.js` for the boundary this runs inside — in particular, the
+	// request goes to the matching ACCOUNT's origin, and `origin` here is only
+	// the key used to find that account.
+	const declaredEndpoint = z.object({
+		origin: z.string(),
+		displayName: z.string(),
+		path: z.string(),
+		/** Send the key without the `Bearer` prefix, as some console APIs want. */
+		raw: z.boolean().default(false),
+		/** Dotted paths for `total`, `granted`, `used`, `currency`, `plan`. */
+		fields: z.dict(z.string()),
+		windows: z.array(declaredWindow)
+	});
+
 	return z.object({
+		/**
+		 * Balance or quota endpoints declared by the user, for vendors the built-in
+		 * table does not cover. Consulted only where nothing else could answer, so
+		 * an entry can add a vendor and can never change how a known one is read.
+		 */
+		endpoints: z.array(declaredEndpoint),
 		/**
 		 * Relay overrides, keyed by DSH provider route. Normally empty: sites are
 		 * discovered from the host's own provider configuration. An entry here is

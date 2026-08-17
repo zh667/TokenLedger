@@ -43,6 +43,7 @@
  */
 
 import { detectRelaySoftware } from "./adapters/detect.js";
+import { compileEndpoint, indexEndpoints } from "./declarative.js";
 import { normalizeWindows } from "./quota.js";
 import { normalizeOrigin } from "./relay-sites.js";
 import { KIMI, MINIMAX, OPENCODE_GO, readZaiCodingPlan } from "./subscriptions.js";
@@ -109,6 +110,74 @@ export function vendorOf(baseUrl) {
 	} catch {
 		return undefined;
 	}
+}
+
+/** How many hops to follow before giving up on a same-origin redirect loop. */
+const MAX_REDIRECTS = 3;
+
+/**
+ * Fetch, following redirects only while they stay on the same origin.
+ *
+ * The default `follow` sends the Authorization header wherever the redirect
+ * points, so a relay that answers `302 https://collector.example/` is handed
+ * the user's key. That is the cheapest way around every other rule this module
+ * has, and it costs one option to close: take the hops manually and stop at the
+ * first one that changes origin.
+ *
+ * A stub `fetch` in a test returns no `status` and no `headers`, so the 3xx
+ * branch is simply never entered.
+ */
+async function fetchNoCrossOriginRedirect(doFetch, url, init) {
+	let current = url;
+	for (let hop = 0; ; hop++) {
+		const response = await doFetch(current, { ...init, redirect: "manual" });
+		const status = response?.status;
+		if (status !== 301 && status !== 302 && status !== 303 && status !== 307 && status !== 308) return response;
+
+		const location = response.headers?.get?.("location");
+		if (location === undefined || location === null || location === "" || hop >= MAX_REDIRECTS) {
+			throw Object.assign(new Error(`http-${status}`), { status });
+		}
+		const next = new URL(location, current);
+		if (next.origin !== new URL(current).origin) {
+			// Not a transport failure — a refusal to hand the credential over.
+			throw Object.assign(new Error("cross-origin-redirect"), { kind: "cross-origin-redirect" });
+		}
+		current = next.href;
+	}
+}
+
+/**
+ * Read a response body with a byte ceiling.
+ *
+ * A declared endpoint is not one of ours, so its answer is not assumed to be a
+ * reasonable size. Streamed where the runtime gives us a reader — which is what
+ * actually bounds the cost — and length-checked otherwise, which at least
+ * bounds the parse.
+ */
+async function readCapped(response, maxBytes) {
+	const tooLarge = () => Object.assign(new Error("response-too-large"), { kind: "too-large" });
+
+	const reader = response.body?.getReader?.();
+	if (reader === undefined || reader === null) {
+		const text = await response.text();
+		if (text.length > maxBytes) throw tooLarge();
+		return text;
+	}
+
+	const chunks = [];
+	let size = 0;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		size += value.byteLength;
+		if (size > maxBytes) {
+			await reader.cancel().catch(() => {});
+			throw tooLarge();
+		}
+		chunks.push(value);
+	}
+	return Buffer.concat(chunks).toString("utf8");
 }
 
 /** A trimmed non-empty string, or undefined. */
@@ -454,7 +523,9 @@ export const SCHEMES = {
  */
 export async function readBalance(options = {}) {
 	const { scheme, origin, timeoutMs = 15_000 } = options;
-	const spec = SCHEMES[scheme];
+	// A compiled declaration is passed in rather than registered, because
+	// registering it would let it collide with — or replace — a built-in name.
+	const spec = options.spec ?? SCHEMES[scheme];
 	if (spec === undefined) return { supported: false, reason: "unknown-software" };
 
 	// A scheme may know where its vendor's own client already keeps a key. Only
@@ -477,8 +548,9 @@ export async function readBalance(options = {}) {
 	 *   routes want even though their inference API does not. Either way the key
 	 *   rides the Authorization header and never a query string.
 	 */
-	const get = async (url, { anonymous = false, raw = false } = {}) => {
-		const response = await doFetch(url, {
+	const get = async (url, options = {}) => {
+		const { anonymous = false, raw = false, maxBytes } = options;
+		const response = await fetchNoCrossOriginRedirect(doFetch, url, {
 			headers: anonymous
 				? { accept: "application/json" }
 				: { authorization: raw ? apiKey : `Bearer ${apiKey}`, accept: "application/json" },
@@ -487,8 +559,9 @@ export async function readBalance(options = {}) {
 		if (!response.ok) throw Object.assign(new Error(`http-${response.status}`), { status: response.status });
 		let body;
 		try {
-			body = await response.json();
-		} catch {
+			body = maxBytes === undefined ? await response.json() : JSON.parse(await readCapped(response, maxBytes));
+		} catch (error) {
+			if (error?.kind === "too-large") throw error;
 			// A host that answers HTML where JSON was asked for is not serving
 			// this route. Marked rather than thrown bare, so a reader that has a
 			// second host to try can tell that apart from a real refusal.
@@ -527,9 +600,13 @@ export async function readBalance(options = {}) {
 					? `http-${error.status}`
 					: error?.kind === "invalid-json"
 						? "invalid-response"
-						: error?.name === "AbortError"
-							? "timeout"
-							: "unreachable";
+						: // These three are refusals by this module, not by the
+							// endpoint, and the card has to be able to say which.
+							error?.kind === "cross-origin-redirect" || error?.kind === "too-large" || error?.kind === "declaration"
+							? error.kind
+							: error?.name === "AbortError"
+								? "timeout"
+								: "unreachable";
 		// A scheme whose endpoint wants a different credential from the one the
 		// route carries says so, rather than leaving the card on a bare 401 that
 		// reads as "your key is wrong".
@@ -662,8 +739,16 @@ export function createBalanceReader(ctx, options = {}) {
 				// Leave it unknown; the answer below says so.
 			}
 		}
+		// A user declaration is the last thing consulted, never the first. It
+		// cannot shadow a built-in scheme, so declaring an endpoint can add a
+		// vendor and can never change how a known one is read.
+		let declared;
 		if (scheme === undefined || SCHEMES[scheme] === undefined) {
-			return { ok: true, account: account.id, supported: false, reason: "unknown-software" };
+			declared = compileEndpoint(indexEndpoints(options.endpoints).get(account.origin));
+			if (declared === undefined) {
+				return { ok: true, account: account.id, supported: false, reason: "unknown-software" };
+			}
+			scheme = "declared";
 		}
 
 		const credentials = typeof ctx.get === "function" ? ctx.get("credentials") : undefined;
@@ -679,7 +764,11 @@ export function createBalanceReader(ctx, options = {}) {
 			ok: true,
 			account: account.id,
 			displayName: account.displayName,
-			...(await readBalance({ scheme, origin: account.origin, apiKey, fetch: options.fetch }))
+			...(await readBalance({ scheme, spec: declared, origin: account.origin, apiKey, fetch: options.fetch })),
+			// So the card can say the numbers came out of paths the user wrote.
+			// A wrong path is a configuration mistake, and that has to be
+			// distinguishable from the plugin getting a known vendor wrong.
+			...(declared === undefined ? {} : { declared: true })
 		};
 	};
 }

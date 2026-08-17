@@ -111,6 +111,43 @@ tokenledger:
   fingerprint: false
 ```
 
+### 自己声明一个余额接口 / Declared endpoints
+
+内置表覆盖不到的供应商，可以自己声明它的接口，不用等我们发版本：
+
+```yaml
+tokenledger:
+  endpoints:
+    - origin: https://relay.example.com   # 必须是你已配置的某条 provider 的同源地址
+      displayName: 我的中转站
+      path: /api/quota
+      # raw: true    # 有些控制台接口要裸密钥，不要 Bearer 前缀
+      fields:        # 值是响应 JSON 里的取值路径，不是表达式
+        total: data.balance
+        granted: data.total
+        used: data.used
+        currency: data.unit
+        plan: data.plan_name
+      windows:
+        - kind: weekly          # session / daily / weekly / monthly / billing
+          usedPercent: data.week.percent
+          resetsAt: data.week.reset_at
+```
+
+`fields` 和 `windows` 里写的是**取值路径**——描述"数字在哪儿"，不描述"怎么取"。没有表达式，也没有任何东西会被求值。路径写错只会让那个字段缺席，其余照常显示。
+
+这个功能等于让配置文件决定"往哪儿发一个带密钥的请求"，所以边界写死在代码里，不靠自觉：
+
+- **请求发往匹配到的那条 provider 的 origin**，`origin:` 字段只是用来找它的键。声明一个没配过的地址，不会产生任何请求。
+- `path` 必须是**单斜杠开头的绝对路径**。`//host/x` 是协议相对 URL，会解析到别的主机上；构造完还会再校验一次 origin。
+- **只发 GET**，没有请求体，声明里的 method / headers 一概不生效。
+- **密钥仍然只从那条 provider 自己的 `apiKeyEnv` 取**，声明不能指定任何凭据。
+- **跨源重定向直接失败**，不跟随——那是绕过第一条最省事的办法。
+- **响应体有大小上限和超时**。
+- **不能覆盖内置读法**：只在内置表答不上来时才轮到它。
+
+这类卡片会标注「自定义端点」，因为数字是你自己配的路径取出来的——取错了是配置问题，界面得让这一点看得出来。
+
 ## 正确性与数据口径 / Correctness
 
 用量折叠有三个地方容易错，都有测试覆盖（`test/usage.test.js`）：
