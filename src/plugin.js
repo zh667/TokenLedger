@@ -807,7 +807,14 @@ export function apply(ctx, userConfig = {}) {
 				// A lazily detected relay program is remembered, so the probe
 				// happens once per site rather than once per balance read.
 				learnSoftware: fingerprints.learn,
-				detect,
+				// `config.detect`, not a bare `detect`. Lifting the fingerprint
+				// registry out of apply() removed the local binding this used to
+				// close over, and the leftover reference threw a ReferenceError
+				// the moment `registerRoutes` was called — swallowed by the catch
+				// below into a warning nobody reads, so the HTTP routes silently
+				// stopped registering and the panel 404'd for every install after
+				// that refactor.
+				detect: config.detect,
 				// Read through `config` rather than captured once, so editing a
 				// declaration takes effect on the next read instead of at the
 				// next restart — the whole point of registering the namespace.
@@ -819,7 +826,12 @@ export function apply(ctx, userConfig = {}) {
 		});
 		if (!served) logger?.info?.("tokenledger: no web server in this composition; the panel will not be served");
 	} catch (error) {
-		logger?.warn?.("tokenledger: could not register the HTTP routes: %s", error?.message ?? error);
+		// At error level, with the stack. This catch exists so a broken panel
+		// never takes the harness down, and it did that job — but it also turned
+		// a ReferenceError in our own code into one grey line, and the routes
+		// were missing for weeks behind it. A caught bug still has to look like
+		// a bug.
+		logger?.error?.("tokenledger: could not register the HTTP routes: %s", error?.stack ?? error?.message ?? error);
 	}
 
 	if (config.sweepOnStart) void runSweep();
