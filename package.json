@@ -19,6 +19,7 @@
     "./package.json": "./package.json",
     "./plugin": "./src/plugin.js",
     "./pricing": "./src/pricing.js",
+    "./quota": "./src/quota.js",
     "./relay-sites": "./src/relay-sites.js",
     "./report": "./src/report.js",
     "./store": "./src/store.js",

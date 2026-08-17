@@ -553,6 +553,59 @@ test("zai reads available against total", async () => {
 	assert.equal(result.currency, "CNY");
 });
 
+// --- quota windows ------------------------------------------------------------
+
+test("a scheme describes what its vendor sent; readBalance does the arithmetic", async () => {
+	// Normalising centrally is the point: a reader says "a ratio" or "seconds
+	// from now" and never has to get the same conversion right a fifth time.
+	const now = Date.UTC(2026, 7, 17, 12, 0, 0);
+	const spec = {
+		label: "Stub",
+		read: async () => ({
+			plan: "Go",
+			windows: [
+				{ kind: "weekly", usedRatio: 0.82 },
+				{ kind: "session", minutes: 300, usedPercent: 4, resetInSeconds: 3600 }
+			]
+		})
+	};
+	SCHEMES.__stub = spec;
+	try {
+		const result = await readBalance({ scheme: "__stub", origin: "https://x.example", apiKey: "k", now, fetch: okJson({}) });
+		assert.deepEqual(result.windows, [
+			{ kind: "session", minutes: 300, resetsAt: "2026-08-17T13:00:00.000Z", usedPercent: 4 },
+			{ kind: "weekly", usedPercent: 82 }
+		]);
+		assert.equal(result.plan, "Go", "the rest of the reader's answer is untouched");
+	} finally {
+		delete SCHEMES.__stub;
+	}
+});
+
+test("a reader that emits nothing usable leaves no windows key at all", async () => {
+	// Not `windows: []`. An empty list would have the card claim to be a
+	// subscription account with nothing in it, which is the same lie as
+	// reporting an unread balance as zero.
+	SCHEMES.__stub = { label: "Stub", read: async () => ({ total: 5, windows: [{ kind: "ROLLING_5H", usedPercent: 3 }] }) };
+	try {
+		const result = await readBalance({ scheme: "__stub", origin: "https://x.example", apiKey: "k", fetch: okJson({}) });
+		assert.equal("windows" in result, false);
+		assert.equal(result.total, 5);
+	} finally {
+		delete SCHEMES.__stub;
+	}
+});
+
+test("a money scheme still returns no windows key", async () => {
+	const result = await readBalance({
+		scheme: "deepseek",
+		origin: "https://api.deepseek.com",
+		apiKey: "k",
+		fetch: okJson({ is_available: true, balance_infos: [{ currency: "CNY", total_balance: "3.00" }] })
+	});
+	assert.equal("windows" in result, false);
+});
+
 // --- vendors that refuse with a 200 ------------------------------------------
 //
 // Probed live with an invalid Bearer and a control path that does not exist:

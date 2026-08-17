@@ -631,6 +631,144 @@ test("a real balance renders its amount and currency", async () => {
 	assert.ok(text.includes("balance.granted:¥5.00"), "granted credit expires and top-ups do not");
 });
 
+// --- quota windows -------------------------------------------------------------
+
+/** Three windows in the shape `readBalance` normalizes them into. */
+const WINDOWS = [
+	{ kind: "session", minutes: 300, usedPercent: 4, resetsAt: "2026-08-16T04:17:00.000Z" },
+	{ kind: "weekly", usedPercent: 82, resetsAt: "2026-08-17T08:00:00.000Z" },
+	{ kind: "monthly", usedPercent: 100 }
+];
+
+const subscription = (windows) => ({
+	status: "ready",
+	data: {
+		ok: true,
+		displayName: "opencode.ai",
+		scheme: "deepseek",
+		supported: true,
+		fetched: true,
+		isAvailable: true,
+		plan: "Go",
+		windows
+	}
+});
+
+test("a card with no windows renders exactly what it did before they existed", async () => {
+	// The card became a column to make room for them. With none, it holds a
+	// single child, the gap never applies, and nothing moves.
+	const { exports, render } = await loadBundle();
+	const tree = render(exports.BalanceCard, {
+		state: { status: "ready", data: { ok: true, displayName: "DeepSeek", scheme: "deepseek", supported: true, fetched: true, isAvailable: true, currency: "CNY", total: 36.44 } },
+		translate: T
+	});
+	assert.equal(findAll(tree, "tkl_wins").length, 0);
+	assert.equal(findAll(tree, "tkl_balanceTop").length, 1);
+	assert.ok(textOf(tree).includes("¥36.44"));
+});
+
+test("each window is one row naming itself, its reset and how full it is", async () => {
+	const { exports, render } = await loadBundle();
+	const tree = render(exports.BalanceCard, { state: subscription(WINDOWS), translate: T });
+	assert.equal(findAll(tree, "tkl_win").length, 3);
+
+	const text = textOf(tree);
+	assert.ok(text.includes("balance.window.hours:5"), "a five-hour window says five hours");
+	assert.ok(text.includes("balance.window.weekly"));
+	assert.ok(text.includes("balance.window.monthly"));
+	assert.ok(text.includes("balance.window.used:4"));
+	assert.ok(text.includes("balance.window.used:82"));
+	assert.ok(text.includes("balance.window.reset:"), "a reset instant is shown when there is one");
+});
+
+test("money and windows both show, because an account can hold both", async () => {
+	// A plan with a top-up wallet behind it is ordinary. A `mode` flag would
+	// force a choice reality does not make.
+	const { exports, render } = await loadBundle();
+	const state = subscription(WINDOWS);
+	state.data.currency = "USD";
+	state.data.total = 12.5;
+	const text = textOf(render(exports.BalanceCard, { state, translate: T }));
+	assert.ok(text.includes("$12.50"));
+	assert.ok(text.includes("balance.window.used:4"));
+});
+
+test("the bar's width is the percentage, and its colour only repeats it", async () => {
+	// Colour is a second channel. The number sits beside every bar, so the
+	// three bands are readable without distinguishing green from amber.
+	const { exports, render } = await loadBundle();
+	const fills = findAll(render(exports.BalanceCard, { state: subscription(WINDOWS), translate: T }), "tkl_winFill");
+	assert.deepEqual(fills.map((f) => f.props.style.width), ["4%", "82%", "100%"]);
+	assert.equal(fills[0].props.className.includes("tkl_winWarn"), false, "4% is not a warning");
+	assert.ok(fills[1].props.className.includes("tkl_winWarn"), "82% is close enough to matter");
+	assert.ok(fills[2].props.className.includes("tkl_winFull"), "100% is spent, not merely close");
+});
+
+test("every bar is a labelled progressbar", async () => {
+	const { exports, render } = await loadBundle();
+	for (const bar of findAll(render(exports.BalanceCard, { state: subscription(WINDOWS), translate: T }), "tkl_winBar")) {
+		assert.equal(bar.props.role, "progressbar");
+		assert.equal(bar.props["aria-valuemin"], 0);
+		assert.equal(bar.props["aria-valuemax"], 100);
+		assert.equal(typeof bar.props["aria-valuenow"], "number");
+		assert.ok(String(bar.props["aria-label"]).startsWith("balance.window."), "a bar with no name is a bar nobody can read");
+	}
+});
+
+test("an unlimited window says so and draws no bar", async () => {
+	// A bar at 0% would read as "none used of a finite allowance", which is the
+	// opposite of what unlimited means.
+	const { exports, render } = await loadBundle();
+	const tree = render(exports.BalanceCard, { state: subscription([{ kind: "weekly", unlimited: true }]), translate: T });
+	assert.ok(textOf(tree).includes("balance.window.unlimited"));
+	assert.equal(findAll(tree, "tkl_winBar").length, 0);
+	assert.equal(findAll(tree, "tkl_win").length, 1, "it still gets a row — unlimited is worth saying");
+});
+
+test("a window with no reset shows its bar and stays quiet about the clock", async () => {
+	const { exports, render } = await loadBundle();
+	const tree = render(exports.BalanceCard, { state: subscription([{ kind: "monthly", usedPercent: 30 }]), translate: T });
+	assert.equal(findAll(tree, "tkl_winReset").length, 0);
+	assert.equal(findAll(tree, "tkl_winBar").length, 1);
+});
+
+test("a session window with no reported length falls back to naming the kind", async () => {
+	// The length is only shown when the upstream sent one. Hard-coding five
+	// hours would be a number the panel made up, and plans differ.
+	const { exports, render } = await loadBundle();
+	const text = textOf(render(exports.QuotaWindows, { windows: [{ kind: "session", usedPercent: 9 }], translate: T }));
+	assert.ok(text.includes("balance.window.session"));
+	assert.equal(text.includes("balance.window.hours"), false);
+});
+
+test("a window length is spoken in whichever unit divides it evenly", async () => {
+	const { exports, render } = await loadBundle();
+	const label = (minutes) =>
+		textOf(render(exports.QuotaWindows, { windows: [{ kind: "session", usedPercent: 1, minutes }], translate: T }));
+	assert.ok(label(300).includes("balance.window.hours:5"));
+	assert.ok(label(1440).includes("balance.window.days:1"));
+	assert.ok(label(90).includes("balance.window.minutes:90"));
+});
+
+test("nothing renders for an absent or empty window list", async () => {
+	const { exports, render } = await loadBundle();
+	for (const windows of [undefined, [], null, "weekly"]) {
+		assert.equal(render(exports.QuotaWindows, { windows, translate: T }), null, JSON.stringify(windows));
+	}
+});
+
+test("both dictionaries carry every window key", async () => {
+	// A missing key renders the key itself, which on a card of numbers looks
+	// like a bug in the data rather than a gap in the translations.
+	const { exports } = await loadBundle();
+	const keys = Object.keys(exports.zh).filter((key) => key.startsWith("balance.window."));
+	assert.ok(keys.length >= 10, `expected every kind, unit and label: ${keys.length}`);
+	for (const key of keys) {
+		assert.equal(typeof exports.en[key], "string", `${key} is missing from en`);
+		assert.notEqual(exports.en[key], "", key);
+	}
+});
+
 test("unattributed rows are surfaced on the page, not only in a command", async () => {
 	const { exports, render } = await loadBundle();
 	const clean = textOf(render(exports.Footer, { data: payload(), translate: T }));
