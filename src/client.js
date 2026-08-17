@@ -285,13 +285,37 @@ window.__ModuleLoader__.load({
 			".tkl_sortMark{color:var(--dsw-alias-label-secondary);margin-left:2px}",
 
 			// -- balance -----------------------------------------------------------
-			".tkl_balance{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--tkl-radius-sm);padding:9px 11px;display:flex;align-items:center;gap:8px}",
+			// The card is a column so quota windows can stack under the amount.
+			// With no windows it holds a single child, the gap never applies, and
+			// the row renders exactly as it did before they existed.
+			".tkl_balance{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--tkl-radius-sm);padding:9px 11px;display:flex;flex-direction:column;gap:9px}",
+			".tkl_balanceTop{display:flex;align-items:center;gap:8px}",
 			".tkl_balanceMain{min-width:0}",
 			".tkl_balanceWho{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}",
 			".tkl_balanceOk{color:var(--dsw-alias-state-success-primary)}",
 			".tkl_balanceBad{color:var(--dsw-alias-state-warn-primary)}",
 			".tkl_balanceAmount{color:var(--dsw-alias-label-primary);font-size:16px;line-height:22px;font-weight:600;font-variant-numeric:tabular-nums}",
 			".tkl_balanceMeta{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;margin-left:auto;text-align:right}",
+
+			// -- quota windows -------------------------------------------------------
+			// A subscription's allowances: one row per window, each naming itself,
+			// when it next empties, and how full it is. The percentage sits beside
+			// the bar rather than inside it, so the state is legible without
+			// relying on the fill colour — the colour is a second channel, never
+			// the only one.
+			".tkl_wins{display:flex;flex-direction:column;gap:7px}",
+			".tkl_win{display:flex;flex-direction:column;gap:3px}",
+			".tkl_winHead{display:flex;align-items:baseline;gap:6px;min-width:0}",
+			".tkl_winName{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;white-space:nowrap}",
+			".tkl_winReset{color:var(--dsw-alias-label-caption);font-size:10px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+			".tkl_winPct{color:var(--dsw-alias-label-primary);font-size:11px;line-height:16px;font-variant-numeric:tabular-nums;margin-left:auto;flex:none}",
+			".tkl_winBar{height:4px;border-radius:999px;background:var(--tkl-level-0);overflow:hidden}",
+			// The three states reuse DSH's own state tokens rather than inventing
+			// colours, so they follow whatever the active theme or skin decided
+			// those states should look like.
+			".tkl_winFill{height:100%;border-radius:999px;background:var(--dsw-alias-state-success-primary)}",
+			".tkl_winFill.tkl_winWarn{background:var(--dsw-alias-state-warn-primary)}",
+			".tkl_winFill.tkl_winFull{background:var(--dsw-alias-state-error-primary)}",
 
 			// -- footer ------------------------------------------------------------
 			".tkl_footer{color:var(--dsw-alias-label-caption);border-top:1px solid var(--dsw-alias-border-l1);margin-top:14px;padding-top:8px;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums}",
@@ -380,12 +404,23 @@ window.__ModuleLoader__.load({
 			hit: "tkl_hit",
 			sortMark: "tkl_sortMark",
 			balance: "tkl_balance",
+			balanceTop: "tkl_balanceTop",
 			balanceMain: "tkl_balanceMain",
 			balanceWho: "tkl_balanceWho",
 			balanceOk: "tkl_balanceOk",
 			balanceBad: "tkl_balanceBad",
 			balanceAmount: "tkl_balanceAmount",
 			balanceMeta: "tkl_balanceMeta",
+			wins: "tkl_wins",
+			win: "tkl_win",
+			winHead: "tkl_winHead",
+			winName: "tkl_winName",
+			winReset: "tkl_winReset",
+			winPct: "tkl_winPct",
+			winBar: "tkl_winBar",
+			winFill: "tkl_winFill",
+			winWarn: "tkl_winWarn",
+			winFull: "tkl_winFull",
 			footer: "tkl_footer",
 			warn: "tkl_warn",
 			skel: "tkl_skel",
@@ -1051,6 +1086,99 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * What to call one window.
+		 *
+		 * `minutes` is consulted only for `session`, because it is the only kind
+		 * whose own name says nothing about how long it is — one plan's rolling
+		 * window is five hours, another's is three, and a `session` row labelled
+		 * "5 hours" on both would be a number the panel made up. `weekly` and
+		 * `monthly` already state their period, so a length would only repeat it.
+		 */
+		function windowLabel(window, translate) {
+			if (window.kind === "session" && typeof window.minutes === "number") {
+				const minutes = window.minutes;
+				if (minutes % 1440 === 0) return translate("balance.window.days", { n: minutes / 1440 });
+				if (minutes % 60 === 0) return translate("balance.window.hours", { n: minutes / 60 });
+				return translate("balance.window.minutes", { n: minutes });
+			}
+			return translate(`balance.window.${window.kind}`);
+		}
+
+		/**
+		 * A subscription's rolling allowances.
+		 *
+		 * These accounts hold no money — several independent windows fill up and
+		 * empty on their own clocks, and "how much of the current one is left" is
+		 * the question the panel exists to answer. Rendered under the amount
+		 * rather than instead of it: a plan with a wallet behind it has both.
+		 */
+		function QuotaWindows({ windows, translate }) {
+			if (!Array.isArray(windows) || windows.length === 0) return null;
+			return jsx("div", {
+				className: S.wins,
+				children: windows.map((window) => {
+					const used = window.usedPercent;
+					const known = typeof used === "number";
+					// Three bands, and the number is always spelled out beside the
+					// bar — the colour repeats the state, it does not carry it.
+					const tone = !known || used < 75 ? "" : used >= 100 ? ` ${S.winFull}` : ` ${S.winWarn}`;
+					return jsxs("div", {
+						className: S.win,
+						children: [
+							jsxs("div", {
+								className: S.winHead,
+								children: [
+									jsx("span", { className: S.winName, children: windowLabel(window, translate) }),
+									window.resetsAt === undefined
+										? null
+										: jsx("span", {
+												className: S.winReset,
+												children: translate("balance.window.reset", { at: fmtReset(window.resetsAt) })
+											}),
+									jsx("span", {
+										className: S.winPct,
+										children: window.unlimited === true
+											? translate("balance.window.unlimited")
+											: known
+												? translate("balance.window.used", { pct: String(used) })
+												: "—"
+									})
+								]
+							}),
+							// An unlimited window has no fraction to draw, and a bar
+							// stuck at zero would read as "none used of a finite
+							// allowance" — the opposite of what it means.
+							window.unlimited === true || !known
+								? null
+								: jsx("div", {
+										className: S.winBar,
+										role: "progressbar",
+										"aria-valuenow": used,
+										"aria-valuemin": 0,
+										"aria-valuemax": 100,
+										"aria-label": windowLabel(window, translate),
+										children: jsx("div", { className: `${S.winFill}${tone}`, style: { width: `${used}%` } })
+									})
+						]
+					});
+				})
+			});
+		}
+
+		/**
+		 * A reset instant, to the minute.
+		 *
+		 * Rendered in the viewer's own locale and zone rather than the vendor's:
+		 * the question is "when does this free up for me", and an instant printed
+		 * in someone else's timezone answers a different one.
+		 */
+		function fmtReset(iso) {
+			const date = new Date(iso);
+			if (Number.isNaN(date.getTime())) return iso;
+			return date.toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+		}
+
+		/**
 		 * One account's balance, whatever software serves it.
 		 *
 		 * Every scheme returns the same shape, so this renders DeepSeek, New API
@@ -1116,6 +1244,9 @@ window.__ModuleLoader__.load({
 				className: S.balance,
 				children: [
 					jsxs("div", {
+						className: S.balanceTop,
+						children: [
+					jsxs("div", {
 						className: S.balanceMain,
 						children: [
 							// Name the vendor AND the software. "Official balance"
@@ -1147,6 +1278,11 @@ window.__ModuleLoader__.load({
 							notes.length === 0 ? null : jsx("div", { children: notes.join(" · " ) })
 						]
 					})
+						]
+					}),
+					// Under the amount, not instead of it. An account can hold both
+					// a wallet and a plan, and the card has to be able to say so.
+					jsx(QuotaWindows, { windows: balance.windows, translate })
 				]
 			});
 		}
@@ -1474,6 +1610,16 @@ window.__ModuleLoader__.load({
 			"balance.active": "账户可用",
 			"balance.inactive": "账户不可用",
 			"balance.granted": "其中赠送 {amount}",
+			"balance.window.session": "当前窗口",
+			"balance.window.weekly": "每周窗口",
+			"balance.window.monthly": "每月窗口",
+			"balance.window.billing": "计费周期",
+			"balance.window.hours": "{n} 小时窗口",
+			"balance.window.days": "{n} 天窗口",
+			"balance.window.minutes": "{n} 分钟窗口",
+			"balance.window.reset": "{at} 重置",
+			"balance.window.used": "已用 {pct}%",
+			"balance.window.unlimited": "不限量",
 			"balance.noRoute": "没有直连 DeepSeek 官方的路由——中转站没有余额接口。",
 			"balance.unavailable": "这个部署问不到 provider 配置。",
 			"footer.updated": "{ago}从会话日志读取",
@@ -1552,6 +1698,16 @@ window.__ModuleLoader__.load({
 			"balance.active": "Account active",
 			"balance.inactive": "Account inactive",
 			"balance.granted": "{amount} granted",
+			"balance.window.session": "Current window",
+			"balance.window.weekly": "Weekly",
+			"balance.window.monthly": "Monthly",
+			"balance.window.billing": "Billing period",
+			"balance.window.hours": "{n}-hour window",
+			"balance.window.days": "{n}-day window",
+			"balance.window.minutes": "{n}-minute window",
+			"balance.window.reset": "resets {at}",
+			"balance.window.used": "{pct}% used",
+			"balance.window.unlimited": "Unlimited",
 			"balance.noRoute": "No direct DeepSeek route — relays have no balance API.",
 			"balance.unavailable": "This deployment exposes no provider directory.",
 			"footer.updated": "Read from your session logs {ago}",
@@ -1627,6 +1783,7 @@ window.__ModuleLoader__.load({
 		exports.ActivityStrip = ActivityStrip;
 		exports.ModelTable = ModelTable;
 		exports.BalanceCard = BalanceCard;
+		exports.QuotaWindows = QuotaWindows;
 		exports.AccountPicker = AccountPicker;
 		exports.Footer = Footer;
 		exports.agoLabel = agoLabel;

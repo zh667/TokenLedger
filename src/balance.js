@@ -43,6 +43,7 @@
  */
 
 import { detectRelaySoftware } from "./adapters/detect.js";
+import { normalizeWindows } from "./quota.js";
 import { normalizeOrigin } from "./relay-sites.js";
 
 /** The vendor's own endpoint, and the only origin the `deepseek` scheme calls. */
@@ -129,10 +130,19 @@ function toNumber(value) {
  * One reader per relay program, plus the vendor.
  *
  * Each returns the same shape so the panel renders one card whatever answered:
- * `{ currency, total, granted, used, unlimited?, plan?, note? }`, with every
- * field absent rather than zeroed when the response does not carry it. A
- * balance of nothing and an unreported balance are different facts, and showing
- * the second as the first tells someone their account is empty.
+ * `{ currency, total, granted, used, unlimited?, plan?, windows?, note? }`,
+ * with every field absent rather than zeroed when the response does not carry
+ * it. A balance of nothing and an unreported balance are different facts, and
+ * showing the second as the first tells someone their account is empty.
+ *
+ * The card has two halves and they are not alternatives. `total` and friends
+ * are money; `windows` is a subscription's rolling allowances (see `quota.js`).
+ * An account can have both — a plan with a top-up wallet behind it is ordinary
+ * — so what is rendered is decided by which fields are present, never by a mode
+ * flag that would force a choice reality does not make.
+ *
+ * A reader returns windows in whatever unit its vendor speaks; `readBalance`
+ * normalizes them.
  */
 export const SCHEMES = {
 	deepseek: {
@@ -293,7 +303,9 @@ export const SCHEMES = {
 /**
  * Read one account.
  *
- * @param options - `{ scheme, origin, apiKey, fetch?, timeoutMs? }`.
+ * @param options - `{ scheme, origin, apiKey, fetch?, timeoutMs?, now? }`.
+ *   `now` is only used to resolve relative reset times into instants, and is
+ *   injectable so a test does not have to race the clock.
  * @returns `{ supported, fetched, ... }`. `fetched` rather than `ok` because
  *   the caller wraps this in an envelope whose own `ok` means "the request was
  *   served"; spreading one over the other made a served request that simply had
@@ -333,7 +345,17 @@ export async function readBalance(options = {}) {
 	};
 
 	try {
-		return { supported: true, fetched: true, scheme, ...(await spec.read({ origin, get, vendor: vendorOf(origin) })) };
+		const read = await spec.read({ origin, get, vendor: vendorOf(origin) });
+		// Normalized here rather than in each reader, so a scheme describes what
+		// its vendor sent ("a ratio", "seconds from now") and never has to get
+		// the arithmetic right a fifth time. `windows` stays absent when there
+		// are none — an empty array would claim a subscription with nothing in
+		// it, which is the same lie as reporting an unread balance as zero.
+		const result = { supported: true, fetched: true, scheme, ...read };
+		const windows = normalizeWindows(read.windows, { now: options.now ?? Date.now() });
+		if (windows === undefined) delete result.windows;
+		else result.windows = windows;
+		return result;
 	} catch (error) {
 		const reason =
 			error?.fromEnvelope === true
