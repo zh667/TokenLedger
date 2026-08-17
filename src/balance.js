@@ -30,6 +30,15 @@
  * with no balance endpoint: each says so in words. A red state belongs on a
  * problem, and none of those is one.
  *
+ * ## A 200 is not a yes
+ *
+ * Some vendors answer every request with HTTP 200 and put the refusal in the
+ * body. Z.ai does it even for a path that does not exist, so its status code
+ * carries no information at all. Reading only `response.ok` there parses the
+ * refusal as data, finds none of the fields it wanted, and renders a card that
+ * says the account is empty — which is the one thing this module promises never
+ * to do. A scheme whose vendor works that way declares an `envelope`.
+ *
  * @module dsh-tokenledger/balance
  */
 
@@ -182,6 +191,19 @@ export const SCHEMES = {
 
 	zai: {
 		label: "Z.ai",
+		// Auth here happens before routing: a bad key gets HTTP 200 and
+		// `{"code":401,"msg":"token expired or incorrect","success":false}`, and
+		// so does a path that was never served. The status line is therefore
+		// worthless and the body is the only place the answer lives.
+		envelope: (body) => {
+			// `success` is the explicit signal. `code` only supplies the number,
+			// and only when it disagrees with both success conventions — a live
+			// account must never be reported as refused because its success code
+			// was spelled 0 rather than 200.
+			const code = typeof body?.code === "number" ? body.code : undefined;
+			const refused = body?.success === false || (code !== undefined && code !== 0 && code !== 200);
+			return refused ? { status: code, message: typeof body?.msg === "string" ? body.msg : undefined } : undefined;
+		},
 		async read({ origin, get, vendor }) {
 			const body = await get(new URL("/api/paas/v4/balance", origin).href);
 			const data = body?.data;
@@ -296,18 +318,31 @@ export async function readBalance(options = {}) {
 			signal: controller.signal
 		});
 		if (!response.ok) throw Object.assign(new Error(`http-${response.status}`), { status: response.status });
-		return response.json();
+		const body = await response.json();
+		// Run before the reader sees it, so a refusal can never be mistaken for a
+		// response whose fields all happen to be missing.
+		const refusal = spec.envelope?.(body);
+		if (refusal === undefined) return body;
+		throw Object.assign(new Error(refusal.message ?? `upstream-${refusal.status ?? "error"}`), {
+			status: refusal.status,
+			// Distinguishes "the vendor said no in the body" from "the transport
+			// said no in the status line". Both are failures; only one of them
+			// means the status code meant anything.
+			fromEnvelope: true
+		});
 	};
 
 	try {
 		return { supported: true, fetched: true, scheme, ...(await spec.read({ origin, get, vendor: vendorOf(origin) })) };
 	} catch (error) {
 		const reason =
-			error?.status !== undefined
-				? `http-${error.status}`
-				: error?.name === "AbortError"
-					? "timeout"
-					: "unreachable";
+			error?.fromEnvelope === true
+				? `upstream-${error.status ?? "error"}`
+				: error?.status !== undefined
+					? `http-${error.status}`
+					: error?.name === "AbortError"
+						? "timeout"
+						: "unreachable";
 		// A scheme whose endpoint wants a different credential from the one the
 		// route carries says so, rather than leaving the card on a bare 401 that
 		// reads as "your key is wrong".
