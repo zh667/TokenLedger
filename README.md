@@ -43,11 +43,18 @@ dsh plugin --profile web update dsh-tokenledger
 dsh plugin --profile web remove dsh-tokenledger
 ```
 
-`update` 对 git 依赖不一定会重新解析（包管理器可能认为 spec 字符串没变就不用动）。**想确定拿到某个版本，钉 commit：**
+重装同一个 spec 会重新解析，所以 `add` 一遍就能拿到最新的 `main`（实测过，不是推测）。
 
-```bash
-dsh plugin --profile web add "github:zh667/TokenLedger#<commit>"
-```
+**要钉某个版本，必须用完整的 40 位 commit SHA。** 包管理器把 ref 拿去和 `git ls-remote` 广播的引用列表比对，而那份列表里只有完整 SHA 和分支/标签名——**短 SHA 匹配不到任何东西，会直接报 `Could not resolve`**：
+
+| spec | |
+| --- | --- |
+| `github:zh667/TokenLedger` | ✅ |
+| `github:zh667/TokenLedger#main` | ✅ |
+| `github:zh667/TokenLedger#947247a` | ❌ 短 SHA 解析不了 |
+| `github:zh667/TokenLedger#947247a86f0835f0e746695538569b1a76356dd1` | ✅ |
+
+如果 `package.json` 里已经被写进了一个解析不了的 spec，`add` 也会失败——它会先解析整份清单。改掉那一行再 `install` 即可。
 
 装完之后 `/tokenledger diagnostics` 会打印当前的路由归属和索引里的路由——**排查「我的中转站为什么不显示」看这里**，不用猜。
 
