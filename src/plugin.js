@@ -31,7 +31,7 @@ import { createFingerprintRegistry } from "./fingerprints.js";
 import { describeProject, readProjectTitles } from "./projects.js";
 import { discoverFromContext, mergeSites, withKnownSoftware } from "./discovery.js";
 import { createBalanceReader, listAccounts } from "./balance.js";
-import { registerRoutes } from "./http.js";
+import { VERSION, registerRoutes } from "./http.js";
 import { LedgerStore } from "./store.js";
 import { RateTable, priceRows } from "./pricing.js";
 import { renderReport } from "./report.js";
@@ -492,6 +492,13 @@ export async function runCommand(rawInput, deps) {
 export function apply(ctx, userConfig = {}) {
 	const config = { ...DEFAULTS, ...userConfig };
 	const logger = ctx.logger?.("tokenledger") ?? ctx.logger;
+
+	// First line the host half prints, and it carries the version. Three
+	// separate rounds of debugging have ended at "the installed copy predates
+	// the fix", each time discovered only after the code was read again — a
+	// stale install and a broken one have identical symptoms, and this is the
+	// cheapest thing that tells them apart.
+	logger?.info?.("tokenledger %s: host half starting", VERSION);
 
 	let store;
 	try {
