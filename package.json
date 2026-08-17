@@ -12,6 +12,7 @@
     ".": "./src/index.js",
     "./adapters/detect": "./src/adapters/detect.js",
     "./balance": "./src/balance.js",
+    "./declarative": "./src/declarative.js",
     "./client": "./src/client.js",
     "./discovery": "./src/discovery.js",
     "./fingerprints": "./src/fingerprints.js",

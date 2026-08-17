@@ -1229,6 +1229,11 @@ window.__ModuleLoader__.load({
 			const amountLabel = typeof balance.total === "number" ? undefined : spent ? translate("balance.spent") : undefined;
 
 			const notes = [];
+			// Say it first. These numbers came out of paths the user wrote, so a
+			// wrong one is a configuration mistake — and that has to be
+			// distinguishable from the plugin misreading a vendor it claims to
+			// support, or the first bug report will be filed against us.
+			if (balance.declared === true) notes.push(translate("balance.declared"));
 			if (balance.unlimited === true) notes.push(translate("balance.unlimited"));
 			if (typeof balance.expiresAt === "number") {
 				notes.push(translate("balance.expires", { at: new Date(balance.expiresAt * 1000).toLocaleDateString() }));
@@ -1614,6 +1619,7 @@ window.__ModuleLoader__.load({
 			"table.none": "没有模型记录。",
 			"balance.account": "账户",
 			"balance.plan": "套餐 {plan}",
+			"balance.declared": "自定义端点",
 			"balance.unlimited": "不限额度",
 			"balance.quota": "{n} 额度",
 			"balance.spent": "已用",
@@ -1704,6 +1710,7 @@ window.__ModuleLoader__.load({
 			"table.none": "No model records.",
 			"balance.account": "Account",
 			"balance.plan": "{plan} plan",
+			"balance.declared": "declared endpoint",
 			"balance.unlimited": "Unlimited",
 			"balance.quota": "{n} quota",
 			"balance.spent": "spent",

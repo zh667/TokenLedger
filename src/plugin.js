@@ -759,7 +759,13 @@ export function apply(ctx, userConfig = {}) {
 				// A lazily detected relay program is remembered, so the probe
 				// happens once per site rather than once per balance read.
 				learnSoftware: fingerprints.learn,
-				detect
+				detect,
+				// Read through `config` rather than captured once, so editing a
+				// declaration takes effect on the next read instead of at the
+				// next restart — the whole point of registering the namespace.
+				get endpoints() {
+					return config.endpoints;
+				}
 			}),
 			logger
 		});
