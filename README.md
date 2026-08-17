@@ -19,6 +19,7 @@ to the relay site that served each request. Zero configuration.
 | 🎯 | **中转站归属** | 按 provider 的 `baseURL` 归一化 origin 分组——同一站的多把 key 合成一行，站名就是域名，不是你自己起的路由别名 |
 | 🔍 | **零配置发现** | 从宿主的 provider 配置里读出中转站，不用你再填一遍。只读 `baseURL`，绝不碰旁边的凭据 |
 | 💳 | **余额** | DeepSeek 官方、New API、Sub2API，每个账户一把普通 key 即可；不限额度的 key 报"已用"而不是假余额 |
+| ⏳ | **订阅配额** | 卖套餐不卖余额的家数越来越多——5 小时 / 每周 / 每月各自滚动、各自重置，每个窗口一条进度条和一个重置时刻 |
 | 📊 | **用量分析** | 今日/本月/累计三窗口、按站点/模型下钻、缓存命中率、一年活跃度热力图（悬停看当天模型构成） |
 | 🧮 | **费用估算** | 生效日期分段的费率表、分桶计价、峰谷时段；未定价的模型显示破折号而不是 0 |
 | 🗂 | **导出与诊断** | CSV / JSON 导出，索引健康度，归因不上的行数单独列出 |
@@ -71,8 +72,18 @@ dsh plugin --profile web remove dsh-tokenledger
 | Moonshot / Kimi | 余额 | provider 的 `apiKeyEnv` | `/v1/users/me/balance` |
 | 智谱 GLM / Z.ai | 余额 | provider 的 `apiKeyEnv` | `/api/paas/v4/balance` |
 | OpenRouter | 余额 | **Management Key** | `/api/v1/credits` |
+| OpenCode Go | 订阅 | provider 的 `apiKeyEnv`，或本机 `auth.json` | `/zen/go/v1/usage` |
+| Kimi For Coding | 订阅 | provider 的 `apiKeyEnv` | `/coding/v1/usages` |
+| MiniMax Coding Plan | 订阅 | provider 的 `apiKeyEnv` | `/v1/token_plan/remains` |
+| 智谱 GLM / Z.ai Coding Plan | 订阅 + 余额 | provider 的 `apiKeyEnv` | `/api/monitor/usage/quota/limit` |
 
 除 OpenRouter 外都只需要一把**普通 API key**——就是你已经配给那条路由、用来发请求的那把。OpenRouter 的额度接口只认 Management Key，用推理 key 会 401，面板会直接说明要哪一把，而不是丢一个 401 让你去查一把本来没问题的 key。
+
+**订阅**这一档没有余额可读，读到的是若干个滚动窗口：一条进度条、一个百分比、一个重置时刻。金额和窗口**可以同时存在**——Z.ai 就是既有钱包又有 Coding Plan，两样都读，任一边读不到也不影响另一边。
+
+OpenCode Go 那条的"本机 `auth.json`"是个便利：路由上没配 `apiKeyEnv` 时，会去读 OpenCode 客户端自己存 key 的那个文件（`~/.local/share/opencode/auth.json`），key 只发回它本来的来处。文件不存在、读不动、格式变了，一律当作"没有凭据"，安静退回，不会因此报错。
+
+这几家订阅接口都没有公开 schema。字段位置不对时，卡片会**说出它去哪儿找过**，而不是留一张空卡——那句话可以直接反馈给我们。
 
 中转站跑的是哪套程序由路由指纹自动判定，第一次查余额时探测一次并记住。厂商自己的域名不需要探测——origin 直接决定用哪套读法，而且同一厂商的多条路由会合并成一个账户（一个钱包），这跟中转站正好相反。
 
