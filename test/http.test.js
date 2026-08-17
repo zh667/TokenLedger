@@ -203,10 +203,16 @@ test("the balance route only exists when a reader was supplied", () => {
 });
 
 test("the web server is waited for, not sampled at mount", async () => {
-	// Third time this mistake shipped: ctx.get answers undefined for a service
-	// that mounts later, and webServer is one of them. The routes silently never
-	// registered, and the panel got a 404 from a plugin whose host half had
-	// demonstrably loaded — the SQLite store was open in the same log.
+	// ctx.get answers undefined for a service that mounts later, and the HTTP
+	// server is one of them. The routes silently never registered, and the panel
+	// got a 404 from a plugin whose host half had demonstrably loaded — the
+	// SQLite store was open in the same log.
+	//
+	// Note what this test could NOT catch: the name being wrong. It asserted
+	// whatever name the source used, so when that was `webServer` — the PACKAGE
+	// name, not the service name — this passed and the panel still 404'd. The
+	// question "is the name right" is only answerable by booting against the
+	// real thing, which `test/boot.test.js` now does.
 	const registered = [];
 	let waitedFor;
 	const ctx = {
@@ -215,14 +221,14 @@ test("the web server is waited for, not sampled at mount", async () => {
 		inject: (deps, run) => {
 			waitedFor = deps;
 			run({
-				webServer: { register: (spec) => void registered.push(spec) },
+				httpServer: { register: (spec) => void registered.push(spec) },
 				effect: (fn) => fn()
 			});
 		},
 		effect: (fn) => fn()
 	};
 	assert.equal(registerRoutes(ctx, { store: {}, sites: () => [] }), true);
-	assert.deepEqual(waitedFor, ["webServer"]);
+	assert.deepEqual(waitedFor, ["httpServer"]);
 	assert.equal(registered.length, 1, "the routes must register once the service arrives");
 	assert.equal(registered[0].path, USAGE_PATH);
 });

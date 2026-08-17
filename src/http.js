@@ -3,7 +3,7 @@
  *
  * ## Why this needs its own fence
  *
- * `webServer.register({ kind: 'exact' })` wins over the RPC prefix, which means
+ * `httpServer.register({ kind: 'exact' })` wins over the RPC prefix, which means
  * these routes sit **outside** the RPC trust boundary. Nothing upstream is
  * checking the caller for us, so the handler does it, and it does it on the
  * peer socket address rather than on the `Host` header: a header is whatever
@@ -210,26 +210,34 @@ export function usagePayload(deps, query) {
 /**
  * Register the read-only routes, if this composition has a web server.
  *
- * `webServer` is reached through `ctx.get` rather than declared in `inject`,
- * for the same reason `commands` and `settings` are: a headless composition
- * must still collect usage, and Cordis's `inject` has no optional form.
+ * `httpServer` is reached through a nested `inject` rather than the plugin's
+ * own, for the same reason `commands` and `settings` are sampled: a headless
+ * composition must still collect usage, and Cordis's `inject` has no optional
+ * form, so a required declaration would refuse to load without a browser.
  *
  * @returns whether the routes were registered.
  */
 export function registerRoutes(ctx, deps) {
-	// WAITED FOR, not sampled. `ctx.get` at mount time answers undefined for a
-	// service that mounts later, and on a real install `webServer` is one of
-	// them: the routes silently never registered and the panel got a 404 from a
-	// plugin whose host half had demonstrably loaded. This is the third time the
-	// same mistake has shipped — `settings` twice, now this — so the sampling
-	// form is not used for an optional service anywhere in this package.
+	// The service is `httpServer`. The PACKAGE is `dsh-host-webserver`, and
+	// naming the service after the package — `webServer` — is what shipped, so
+	// the nested fiber below waited on a name nothing provides and the routes
+	// were never registered. Upstream is unambiguous: `super(ctx, "httpServer")`.
+	//
+	// Nothing reported it. A nested `ctx.inject` is its own fiber, and DSH's
+	// activation assertion only covers top-level entries, so the host half
+	// "loaded" while the panel got a 404 from routes that did not exist.
+	//
+	// WAITED FOR, not sampled, for the separate reason recorded below: `ctx.get`
+	// at mount time answers undefined for a service that mounts later, which is
+	// how this same route silently vanished twice before. Name and lookup form
+	// are two independent ways to get this wrong and both have now been wrong.
 	if (typeof ctx.inject !== "function") {
-		const immediate = typeof ctx.get === "function" ? ctx.get("webServer") : undefined;
+		const immediate = typeof ctx.get === "function" ? ctx.get("httpServer") : undefined;
 		if (immediate === undefined || typeof immediate.register !== "function") return false;
 		return attachRoutes(ctx, immediate, deps);
 	}
-	ctx.inject(["webServer"], (scoped) => {
-		attachRoutes(scoped, scoped.webServer, deps);
+	ctx.inject(["httpServer"], (scoped) => {
+		attachRoutes(scoped, scoped.httpServer, deps);
 		deps.logger?.info?.("tokenledger: serving %s and %s", USAGE_PATH, BALANCE_PATH);
 	});
 	return true;
@@ -240,7 +248,7 @@ export function registerRoutes(ctx, deps) {
  *
  * @returns true, so the caller can report that a surface exists.
  */
-function attachRoutes(ctx, webServer, deps) {
+function attachRoutes(ctx, httpServer, deps) {
 	const logger = deps.logger;
 
 	const send = (res, status, value) => {
@@ -255,7 +263,7 @@ function attachRoutes(ctx, webServer, deps) {
 	const route = (path, build, label) => {
 		ctx.effect(
 			() =>
-				webServer.register({
+				httpServer.register({
 					kind: "exact",
 					path,
 					handler: async (req, res) => {
