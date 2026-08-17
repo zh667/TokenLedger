@@ -23,6 +23,7 @@
     "./relay-sites": "./src/relay-sites.js",
     "./report": "./src/report.js",
     "./store": "./src/store.js",
+    "./subscriptions": "./src/subscriptions.js",
     "./usage": "./src/usage.js"
   },
   "files": [

@@ -25,11 +25,22 @@ test("official is decided by origin, not by what the route is called", () => {
 });
 
 test("every scheme answers the same shape, so one card renders all of them", () => {
-	assert.deepEqual(Object.keys(SCHEMES).sort(), ["deepseek", "moonshot", "newapi", "openrouter", "sub2api", "zai"]);
+	assert.deepEqual(Object.keys(SCHEMES).sort(), [
+		"deepseek",
+		"kimi",
+		"minimax",
+		"moonshot",
+		"newapi",
+		"opencode-go",
+		"openrouter",
+		"sub2api",
+		"zai"
+	]);
 	for (const [name, spec] of Object.entries(SCHEMES)) {
 		assert.equal(typeof spec.read, "function", name);
 		assert.equal(typeof spec.label, "string", name);
 		if (spec.envelope !== undefined) assert.equal(typeof spec.envelope, "function", name);
+		if (spec.localCredential !== undefined) assert.equal(typeof spec.localCredential, "function", name);
 	}
 });
 

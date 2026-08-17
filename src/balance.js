@@ -45,6 +45,7 @@
 import { detectRelaySoftware } from "./adapters/detect.js";
 import { normalizeWindows } from "./quota.js";
 import { normalizeOrigin } from "./relay-sites.js";
+import { KIMI, MINIMAX, OPENCODE_GO, readZaiCodingPlan } from "./subscriptions.js";
 
 /** The vendor's own endpoint, and the only origin the `deepseek` scheme calls. */
 export const DEEPSEEK_ORIGIN = "https://api.deepseek.com";
@@ -84,7 +85,14 @@ const VENDORS = new Map([
 	["api.moonshot.cn", { scheme: "moonshot", displayName: "Moonshot", currency: "CNY" }],
 	["api.moonshot.ai", { scheme: "moonshot", displayName: "Moonshot" }],
 	["api.z.ai", { scheme: "zai", displayName: "Z.ai" }],
-	["open.bigmodel.cn", { scheme: "zai", displayName: "智谱 GLM", currency: "CNY" }]
+	["open.bigmodel.cn", { scheme: "zai", displayName: "智谱 GLM", currency: "CNY" }],
+	// Plan vendors. No wallet to read — see `subscriptions.js`.
+	["opencode.ai", { scheme: "opencode-go", displayName: "OpenCode Go" }],
+	["api.kimi.com", { scheme: "kimi", displayName: "Kimi For Coding" }],
+	["api.minimax.io", { scheme: "minimax", displayName: "MiniMax" }],
+	["www.minimax.io", { scheme: "minimax", displayName: "MiniMax" }],
+	["api.minimaxi.com", { scheme: "minimax", displayName: "MiniMax", currency: "CNY" }],
+	["www.minimaxi.com", { scheme: "minimax", displayName: "MiniMax", currency: "CNY" }]
 ]);
 
 /**
@@ -214,19 +222,43 @@ export const SCHEMES = {
 			const refused = body?.success === false || (code !== undefined && code !== 0 && code !== 200);
 			return refused ? { status: code, message: typeof body?.msg === "string" ? body.msg : undefined } : undefined;
 		},
+		// This vendor sells both a wallet and a Coding Plan, and an account can
+		// hold both at once, so both are read and either may fail alone. A plan
+		// user with an empty wallet must not see an empty card, and a wallet user
+		// with no plan must not see the balance disappear because a second route
+		// answered 404.
 		async read({ origin, get, vendor }) {
-			const body = await get(new URL("/api/paas/v4/balance", origin).href);
-			const data = body?.data;
+			const [wallet, plan] = await Promise.allSettled([
+				get(new URL("/api/paas/v4/balance", origin).href),
+				readZaiCodingPlan({ origin, get })
+			]);
+			if (wallet.status === "rejected" && plan.status === "rejected") throw wallet.reason;
+
+			const data = wallet.status === "fulfilled" ? wallet.value?.data : undefined;
 			const available = toNumber(data?.available_balance);
 			const total = toNumber(data?.total_balance) ?? available;
+			const coding = plan.status === "fulfilled" ? plan.value : undefined;
+			const windows = coding?.windows ?? [];
+
 			return {
-				isAvailable: total === undefined ? undefined : total > 0,
+				isAvailable:
+					total !== undefined
+						? total > 0
+						: windows.length === 0
+							? undefined
+							: windows.some((w) => w.unlimited === true || (w.usedPercent ?? 0) < 100),
 				currency: typeof data?.currency === "string" ? data.currency : vendor?.currency,
 				total: available ?? total,
-				granted: total
+				granted: total,
+				...(coding?.plan === undefined ? {} : { plan: coding.plan }),
+				windows
 			};
 		}
 	},
+
+	"opencode-go": OPENCODE_GO,
+	kimi: KIMI,
+	minimax: MINIMAX,
 
 	newapi: {
 		label: "New API",
@@ -312,9 +344,17 @@ export const SCHEMES = {
  *   no key look like a failed route.
  */
 export async function readBalance(options = {}) {
-	const { scheme, origin, apiKey, timeoutMs = 15_000 } = options;
+	const { scheme, origin, timeoutMs = 15_000 } = options;
 	const spec = SCHEMES[scheme];
 	if (spec === undefined) return { supported: false, reason: "unknown-software" };
+
+	// A scheme may know where its vendor's own client already keeps a key. Only
+	// consulted when the route carries none, and only ever able to say "no
+	// credential" on failure — see `localCredential` on the scheme.
+	let apiKey = options.apiKey;
+	if ((typeof apiKey !== "string" || apiKey === "") && spec.localCredential !== undefined) {
+		apiKey = await spec.localCredential(options).catch(() => undefined);
+	}
 	if (typeof apiKey !== "string" || apiKey === "") {
 		return { supported: true, fetched: false, reason: "no-credential" };
 	}
@@ -322,15 +362,29 @@ export async function readBalance(options = {}) {
 	const doFetch = options.fetch ?? globalThis.fetch;
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), timeoutMs);
-	const get = async (url, { anonymous = false } = {}) => {
+	/**
+	 * @param options - `{ anonymous }` sends no credential at all; `{ raw }`
+	 *   sends the key without the `Bearer` prefix, which some vendors' console
+	 *   routes want even though their inference API does not. Either way the key
+	 *   rides the Authorization header and never a query string.
+	 */
+	const get = async (url, { anonymous = false, raw = false } = {}) => {
 		const response = await doFetch(url, {
 			headers: anonymous
 				? { accept: "application/json" }
-				: { authorization: `Bearer ${apiKey}`, accept: "application/json" },
+				: { authorization: raw ? apiKey : `Bearer ${apiKey}`, accept: "application/json" },
 			signal: controller.signal
 		});
 		if (!response.ok) throw Object.assign(new Error(`http-${response.status}`), { status: response.status });
-		const body = await response.json();
+		let body;
+		try {
+			body = await response.json();
+		} catch {
+			// A host that answers HTML where JSON was asked for is not serving
+			// this route. Marked rather than thrown bare, so a reader that has a
+			// second host to try can tell that apart from a real refusal.
+			throw Object.assign(new Error("invalid-json"), { kind: "invalid-json" });
+		}
 		// Run before the reader sees it, so a refusal can never be mistaken for a
 		// response whose fields all happen to be missing.
 		const refusal = spec.envelope?.(body);
@@ -362,9 +416,11 @@ export async function readBalance(options = {}) {
 				? `upstream-${error.status ?? "error"}`
 				: error?.status !== undefined
 					? `http-${error.status}`
-					: error?.name === "AbortError"
-						? "timeout"
-						: "unreachable";
+					: error?.kind === "invalid-json"
+						? "invalid-response"
+						: error?.name === "AbortError"
+							? "timeout"
+							: "unreachable";
 		// A scheme whose endpoint wants a different credential from the one the
 		// route carries says so, rather than leaving the card on a bare 401 that
 		// reads as "your key is wrong".

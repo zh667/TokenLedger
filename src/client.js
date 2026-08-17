@@ -1240,6 +1240,15 @@ window.__ModuleLoader__.load({
 				notes.push(translate("balance.plan", { plan: balance.plan }));
 			}
 
+			// A request that succeeded and produced nothing readable is the one
+			// failure a blank card cannot express. These payloads have no
+			// published schema, so the reader says which field it went looking
+			// for and the user has something to forward instead of "it's empty".
+			const unparsed =
+				balance.windows === undefined && balance.total === undefined && typeof balance.reason === "string"
+					? translate("balance.unparsed", { reason: balance.reason })
+					: undefined;
+
 			return jsxs("div", {
 				className: S.balance,
 				children: [
@@ -1253,7 +1262,7 @@ window.__ModuleLoader__.load({
 							// answers nothing on a panel that also reports relays.
 							jsx("div", {
 								className: S.balanceWho,
-								children: [balance.displayName, SCHEME_LABELS[balance.scheme] ?? balance.scheme, balance.keyName]
+								children: [balance.displayName, SCHEME_LABELS[balance.scheme], balance.keyName]
 									.filter(Boolean)
 									.join(" · ")
 							}),
@@ -1282,12 +1291,19 @@ window.__ModuleLoader__.load({
 					}),
 					// Under the amount, not instead of it. An account can hold both
 					// a wallet and a plan, and the card has to be able to say so.
-					jsx(QuotaWindows, { windows: balance.windows, translate })
+					jsx(QuotaWindows, { windows: balance.windows, translate }),
+					unparsed === undefined ? null : jsx("p", { className: S.note, children: unparsed })
 				]
 			});
 		}
 
-		/** How each relay program is named on the card. */
+		/**
+		 * How each relay program is named on the card.
+		 *
+		 * Only where the name adds something the host does not already say. A
+		 * vendor whose display name is already "OpenCode Go" gains nothing from a
+		 * second "OpenCode Go" beside it.
+		 */
 		const SCHEME_LABELS = { deepseek: "API 余额", newapi: "New API", sub2api: "Sub2API" };
 
 		/** Index health. A stale or lossy index must say so on the page. */
@@ -1610,6 +1626,7 @@ window.__ModuleLoader__.load({
 			"balance.active": "账户可用",
 			"balance.inactive": "账户不可用",
 			"balance.granted": "其中赠送 {amount}",
+			"balance.unparsed": "接口答了，但认不出配额字段（{reason}）。可以把这句话反馈给我们。",
 			"balance.window.session": "当前窗口",
 			"balance.window.weekly": "每周窗口",
 			"balance.window.monthly": "每月窗口",
@@ -1698,6 +1715,7 @@ window.__ModuleLoader__.load({
 			"balance.active": "Account active",
 			"balance.inactive": "Account inactive",
 			"balance.granted": "{amount} granted",
+			"balance.unparsed": "The endpoint answered, but none of the quota fields were where they were expected ({reason}). Worth reporting.",
 			"balance.window.session": "Current window",
 			"balance.window.weekly": "Weekly",
 			"balance.window.monthly": "Monthly",
