@@ -71,5 +71,8 @@
     "@deepseek-ai/schemastery": {
       "optional": true
     }
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
   }
 }
