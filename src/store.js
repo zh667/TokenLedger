@@ -429,6 +429,18 @@ export class LedgerStore {
 	}
 
 	/**
+	 * Every `(site, provider)` pair the index holds.
+	 *
+	 * Small by construction — its size is the number of routes ever seen, not
+	 * the amount of traffic — so it is cheap enough to check on every sweep.
+	 * That matters, because it is the only way to notice that stored attribution
+	 * has drifted from what the directory would say today.
+	 */
+	distinctRoutes() {
+		return this.#db.prepare("SELECT DISTINCT site, provider FROM session_rollups").all();
+	}
+
+	/**
 	 * Index health, for the diagnostics surface. Deliberately counts and
 	 * identifiers only — never prompts, tool arguments, credentials, or content.
 	 */

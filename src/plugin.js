@@ -33,7 +33,7 @@
  * @module dsh-tokenledger/plugin
  */
 
-import { DIRECT, UNROUTED, applyUsageDelta, dayKey } from "./usage.js";
+import { DIRECT, UNKNOWN, UNROUTED, applyUsageDelta, dayKey } from "./usage.js";
 import { RelaySiteRegistry, SITE_TYPES, createSiteResolver, domainOf } from "./relay-sites.js";
 import { createFingerprintRegistry } from "./fingerprints.js";
 import { describeProject, readProjectTitles, workspaceRegistry } from "./projects.js";
@@ -493,6 +493,37 @@ export async function runCommand(rawInput, deps) {
 }
 
 /**
+ * Rows whose recorded site is not what the directory would say today.
+ *
+ * The fold is INCREMENTAL — `readFrom(id, consumedSeq + 1)` appends only new
+ * events — so a session first folded when the directory did not know a route
+ * keeps those old rows forever while its later events attribute correctly. A
+ * real install ended up with one route under two different sites, 229k tokens
+ * of it labelled "direct/official".
+ *
+ * The old trigger compared the set of ORIGINS and rebuilt when it changed. That
+ * catches a relay being added or removed and misses this entirely: once the set
+ * settles, stale rows are never revisited no matter how plainly they disagree.
+ * So the disagreement itself is what gets checked.
+ *
+ * @param store - the ledger.
+ * @param directory - the live directory; its `resolveSite` is the authority.
+ * @returns `[{ site, provider, expected }]`, empty when the index agrees.
+ */
+export function staleAttributions(store, directory) {
+	// Discovery being down makes every route look unresolvable, which would
+	// "prove" the whole index stale and rebuild it into a worse state.
+	if (directory?.available !== true) return [];
+	const out = [];
+	for (const row of store.distinctRoutes()) {
+		if (row.provider === UNKNOWN) continue; // no route to resolve; DIRECT by rule
+		const expected = directory.resolveSite?.(row.provider) ?? UNROUTED;
+		if (expected !== row.site) out.push({ site: row.site, provider: row.provider, expected });
+	}
+	return out;
+}
+
+/**
  * The two tables that answer "why is my relay not showing".
  *
  * Neither number was reachable before. Working out where a site's traffic had
@@ -630,7 +661,7 @@ export function apply(ctx, userConfig = {}) {
 		}
 		const merged = mergeSites(discovered, normalizeRelayConfig(config));
 		merged.sites = withKnownSoftware(merged.sites, fingerprints.software);
-		const next = { ...merged, resolveSite: buildResolver(merged) };
+		const next = { ...merged, available: discovered.available === true, resolveSite: buildResolver(merged) };
 		const moved = directoryKnown && originKey(next) !== originKey(directory);
 
 		if (!directoryKnown && discovered.available && merged.sites.length > 0) {
@@ -683,8 +714,21 @@ export function apply(ctx, userConfig = {}) {
 			// the alternative is a report that shows a site starting from the
 			// moment it was noticed, which reads as "you just started using this"
 			// rather than "this was only just recognised".
-			if (refreshDirectory()) {
-				logger?.info?.("tokenledger: the relay set changed; rebuilding the index so past traffic is attributed too");
+			const moved = refreshDirectory();
+			// Two reasons to rebuild, and the second is the one that was missing.
+			// A changed relay set is the obvious case; an index that simply
+			// disagrees with the directory is the case that survives it.
+			const stale = moved ? [] : staleAttributions(store, directory);
+			if (moved || stale.length > 0) {
+				if (moved) {
+					logger?.info?.("tokenledger: the relay set changed; rebuilding the index so past traffic is attributed too");
+				} else {
+					logger?.info?.(
+						"tokenledger: %d route(s) are recorded under a site the directory no longer agrees with (%s); rebuilding",
+						stale.length,
+						stale.map((r) => `${r.provider}: ${r.site} -> ${r.expected}`).join(", ")
+					);
+				}
 				store.reset();
 			}
 			const stats = await sweep(ctx.sessionPersistence, store, {

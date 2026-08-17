@@ -201,6 +201,24 @@ test("zero-valued route buckets are not persisted", () => {
 	});
 });
 
+test("distinctRoutes is one row per route, not per unit of traffic", () => {
+	// It runs on every sweep, so its size has to track the number of routes ever
+	// seen rather than how much went through them.
+	withStore((store) => {
+		const state = { days: new Map(), lastSample: null, currentRoute: null, consumedSeq: -1 };
+		applyUsageDelta(state, [
+			message(1, 1, "deepseek", "v4", usage(100, 10), DAY_A),
+			message(2, 2, "deepseek", "v4", usage(200, 20), DAY_B),
+			message(3, 3, "deepseek", "v4-mini", usage(5, 1), DAY_B)
+		]);
+		store.commitSession("s1", state, {});
+
+		// node:sqlite hands back null-prototype rows, so compare the fields.
+		const routes = store.distinctRoutes().map((r) => ({ site: r.site, provider: r.provider }));
+		assert.deepEqual(routes, [{ site: "direct", provider: "deepseek" }], "three days and two models, one route");
+	});
+});
+
 test("diagnostics report counts and identifiers only", () => {
 	withStore((store) => {
 		const state = { days: new Map(), lastSample: null, currentRoute: null, consumedSeq: -1 };
