@@ -118,9 +118,10 @@ test("no official @deepseek-ai package is a hard dependency", () => {
 });
 
 test("no source file contains a raw control byte", () => {
-	// This has now happened twice: a NUL written literally into a template
-	// literal as a key separator, once in `adapters/newapi.js` and once in
-	// `http.js`. Node parses it fine and every test passes, so nothing surfaces
+	// This has now happened three times: a NUL written literally into a template
+	// literal as a key separator — `adapters/newapi.js`, then `http.js`, then a
+	// React key in `client.js` where a space was meant. Node parses it fine and
+	// every test passes, so nothing surfaces
 	// it — but `file` reports the source as binary and **grep skips the whole
 	// file**. Three hundred lines then become invisible to every repository-wide
 	// search, including the credential scan run before each commit. `\u0000`
