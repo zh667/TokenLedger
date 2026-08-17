@@ -139,7 +139,14 @@ window.__ModuleLoader__.load({
 			".tkl_layer.tkl_rail .tkl_badgeLabel,.tkl_layer.tkl_rail .tkl_badgeValue{display:none}",
 
 			// -- the panel ---------------------------------------------------------
-			".tkl_panel{z-index:30;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);width:460px;max-width:calc(100vw - 24px);max-height:76vh;box-shadow:var(--dsw-shadow-lv2);border-radius:12px;flex-direction:column;display:flex;position:fixed;bottom:128px;left:12px;overflow:hidden;" +
+			//
+			// Everything that floats reaches for `--dsw-alias-bg-overlay` first.
+			// `--dsw-alias-bg-base` is the PAGE's ground, and a skin that wants a
+			// frosted look sets it to `transparent` — correct for the page, fatal
+			// for a panel sitting on top of it, which then shows the wallpaper
+			// through its own text. Themes that define no overlay token fall back
+			// to the old value, so the default look is unchanged.
+			".tkl_panel{z-index:30;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-overlay,var(--dsw-alias-bg-base));width:460px;max-width:calc(100vw - 24px);max-height:76vh;box-shadow:var(--dsw-shadow-lv2);border-radius:12px;flex-direction:column;display:flex;position:fixed;bottom:128px;left:12px;overflow:hidden;" +
 				// Scoped here rather than on :root so nothing escapes into the host.
 				"--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);" +
 				"--tkl-radius:12px;--tkl-radius-sm:8px;--tkl-radius-xs:6px;" +
@@ -155,7 +162,7 @@ window.__ModuleLoader__.load({
 			"[data-theme='dark'] .tkl_panel{--tkl-level-1:#065f46;--tkl-level-2:#059669;--tkl-level-3:#10b981;--tkl-level-4:#34d399;--tkl-direct:#6b7280;--tkl-series-0:#38bdf8;--tkl-series-1:#fbbf24;--tkl-series-2:#a78bfa;--tkl-series-3:#2dd4bf;--tkl-series-4:#f472b6;--tkl-series-5:#a3e635}",
 			"[data-theme='light'] .tkl_panel{--tkl-level-1:#a7f3d0;--tkl-level-2:#6ee7b7;--tkl-level-3:#34d399;--tkl-level-4:#10b981;--tkl-direct:#8b93a7;--tkl-series-0:#0ea5e9;--tkl-series-1:#f59e0b;--tkl-series-2:#8b5cf6;--tkl-series-3:#14b8a6;--tkl-series-4:#ec4899;--tkl-series-5:#84cc16}",
 
-			".tkl_header{box-sizing:border-box;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);flex:none;justify-content:space-between;align-items:center;min-height:44px;padding:10px 12px;display:flex;gap:8px}",
+			".tkl_header{box-sizing:border-box;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-overlay,var(--dsw-alias-bg-base));flex:none;justify-content:space-between;align-items:center;min-height:44px;padding:10px 12px;display:flex;gap:8px}",
 			".tkl_headerLeft{align-items:center;gap:8px;display:flex;min-width:0}",
 			".tkl_title{color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;line-height:20px;white-space:nowrap}",
 			".tkl_headerActions{align-items:center;gap:2px;display:flex;flex:none}",
@@ -248,7 +255,9 @@ window.__ModuleLoader__.load({
 			// a second of hovering and nothing else. The panel already has the
 			// per-model split for that day, so showing it is nearly free and turns
 			// the strip from decoration into something you read.
-			".tkl_tip{position:fixed;z-index:40;pointer-events:none;min-width:180px;max-width:250px;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:var(--tkl-radius-sm);box-shadow:var(--dsw-shadow-lv2);padding:8px 10px}",
+			// The tooltip floats over the panel's own content, so it needs an
+			// opaque ground even more than the panel does.
+			".tkl_tip{position:fixed;z-index:40;pointer-events:none;min-width:180px;max-width:250px;background:var(--dsw-alias-bg-overlay,var(--dsw-alias-bg-base));border:1px solid var(--dsw-alias-border-l2);border-radius:var(--tkl-radius-sm);box-shadow:var(--dsw-shadow-lv2);padding:8px 10px}",
 			".tkl_tipHead{display:flex;align-items:center;gap:6px;justify-content:space-between}",
 			".tkl_tipDate{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;font-variant-numeric:tabular-nums}",
 			".tkl_tipLevel{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:14px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:0 6px;flex:none}",
