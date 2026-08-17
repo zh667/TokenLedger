@@ -33,7 +33,7 @@
  * @module dsh-tokenledger/plugin
  */
 
-import { applyUsageDelta, dayKey } from "./usage.js";
+import { DIRECT, UNROUTED, applyUsageDelta, dayKey } from "./usage.js";
 import { RelaySiteRegistry, SITE_TYPES, createSiteResolver, domainOf } from "./relay-sites.js";
 import { createFingerprintRegistry } from "./fingerprints.js";
 import { describeProject, readProjectTitles, workspaceRegistry } from "./projects.js";
@@ -42,7 +42,7 @@ import { createBalanceReader, listAccounts } from "./balance.js";
 import { VERSION, registerRoutes } from "./http.js";
 import { LedgerStore } from "./store.js";
 import { RateTable, priceRows } from "./pricing.js";
-import { renderReport } from "./report.js";
+import { num, renderReport, table } from "./report.js";
 
 /** `YYYY-MM-DD` for N days before today, in local time. */
 function dayKeyDaysAgo(daysBack) {
@@ -431,7 +431,9 @@ export async function runCommand(rawInput, deps) {
 			// Worth its own line: rows that could not be attributed are the one
 			// number that says the fold is missing something, rather than that
 			// there was nothing to find.
-			`  归因不上的行     ${d.unattributedRows}${d.unattributedRows > 0 ? "  ← 这些行的 provider 或 model 是 unknown" : ""}`
+			`  归因不上的行     ${d.unattributedRows}${d.unattributedRows > 0 ? "  ← 这些行的 provider 或 model 是 unknown" : ""}`,
+			"",
+			...routeAttributionReport(store, deps.directory?.())
 		].join("\n");
 	}
 
@@ -488,6 +490,68 @@ export async function runCommand(rawInput, deps) {
 		priced: config.rates === undefined ? null : priceWithConfiguredRates(store, range, site, config.rates),
 		siteFilter: site
 	});
+}
+
+/**
+ * The two tables that answer "why is my relay not showing".
+ *
+ * Neither number was reachable before. Working out where a site's traffic had
+ * gone meant reasoning about the resolver from the outside, three rounds of it,
+ * while the answer sat in the index the whole time: **the rollup row keys on
+ * the route name**, so which routes landed in which bucket has always been
+ * recorded and simply never displayed.
+ *
+ * @param store - the ledger.
+ * @param directory - the live relay directory, or undefined if not wired.
+ */
+function routeAttributionReport(store, directory) {
+	const out = ["── 路由归属（当前配置）──"];
+	const baseUrls = directory?.providerBaseUrls ?? {};
+	const routes = Object.keys(baseUrls).sort();
+
+	if (routes.length === 0) {
+		out.push("  自动发现没有看到任何带 baseURL 的 provider 路由。");
+		out.push("  这本身可能是对的（只用官方直连），也可能是 settings 服务缺席或 provider 由 agent preset 挂载。");
+	} else {
+		const rows = routes.map((route) => {
+			const site = directory?.resolveSite?.(route);
+			const where = site === undefined ? "未知路由" : site === DIRECT ? "直连/官方（不指向中转站）" : site;
+			return [route, String(baseUrls[route]), where];
+		});
+		out.push(...table([{ title: "路由" }, { title: "baseURL" }, { title: "归到" }], rows).map((l) => `  ${l}`));
+	}
+
+	// What the index actually holds, which is the half that says whether the
+	// CURRENT configuration ever applied to the traffic already recorded.
+	const byRoute = new Map();
+	for (const row of store.byRoute()) {
+		const key = `${row.site} ${row.provider}`;
+		byRoute.set(key, (byRoute.get(key) ?? 0) + (row.tokens ?? 0));
+	}
+	out.push("", "── 索引里的路由（历史流量实际记在哪）──");
+	if (byRoute.size === 0) {
+		out.push("  索引里还没有任何用量。");
+		return out;
+	}
+	const indexed = [...byRoute]
+		.sort((a, b) => b[1] - a[1])
+		.map(([key, tokens]) => {
+			const [site, ...rest] = key.split(" ");
+			const label = site === DIRECT ? "直连/官方" : site === UNROUTED ? "未知路由" : site;
+			return [label, rest.join(" "), num(tokens)];
+		});
+	out.push(
+		...table([{ title: "站点" }, { title: "路由" }, { title: "tokens", align: "right" }], indexed).map((l) => `  ${l}`)
+	);
+	// The line that turns a puzzling breakdown into an actionable one.
+	const stranded = [...byRoute.keys()].filter((k) => k.startsWith(`${DIRECT} `) || k.startsWith(`${UNROUTED} `));
+	if (stranded.length > 0) {
+		out.push("");
+		out.push("  上面记在「直连/官方」或「未知路由」下的路由名，如果其实是中转站，");
+		out.push("  说明折叠那批流量时目录里没有它。用同一个路由名把它配回去，");
+		out.push("  下一次目录变化会重建索引并让历史流量归位。");
+	}
+	return out;
 }
 
 /**
@@ -781,6 +845,9 @@ export function apply(ctx, userConfig = {}) {
 			reindex: api.reindex,
 			logger,
 			sites: () => directory.sites,
+			// The whole directory, not just its sites: diagnostics needs the
+			// route -> baseUrl map and the resolver to explain an attribution.
+			directory: () => directory,
 			projectTitles: () => projectTitles,
 			refresh: () => void refreshDirectory(),
 			settle: fingerprints.settle,

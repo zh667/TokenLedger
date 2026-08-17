@@ -43,6 +43,14 @@ dsh plugin --profile web update dsh-tokenledger
 dsh plugin --profile web remove dsh-tokenledger
 ```
 
+`update` 对 git 依赖不一定会重新解析（包管理器可能认为 spec 字符串没变就不用动）。**想确定拿到某个版本，钉 commit：**
+
+```bash
+dsh plugin --profile web add "github:zh667/TokenLedger#<commit>"
+```
+
+装完之后 `/tokenledger diagnostics` 会打印当前的路由归属和索引里的路由——**排查「我的中转站为什么不显示」看这里**，不用猜。
+
 装完即可用：没有要填的配置，也不需要任何凭据就能看到全部用量与中转站分布。余额是唯一用到 key 的地方，而那把 key 宿主已经替你存着了。
 
 ## 命令 / Commands
