@@ -28,6 +28,15 @@
  * apart, and "the numbers match the command" is a meaningful test.
  *
 
+ * ## This half loading proves nothing about the other one
+ *
+ * The two halves mount by different mechanisms: the browser half is found by
+ * scanning installed packages for `dsh.client`, while the host half is a loader
+ * entry contributed through `dsh.profile.bundles`. So every log line below can
+ * print, the panel can render, and the host half can be absent entirely — which
+ * has happened, and cost a day of looking in the wrong place. A healthy console
+ * here is not evidence about the server. See `docs/HOST-CONTRACT.md`.
+ *
  * ## Why this is one file, and has to stay one
  *
  * It is long — CSS, both dictionaries, every component, the data hooks. That

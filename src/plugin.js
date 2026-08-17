@@ -22,6 +22,14 @@
  * written while the plugin was not running — a restart would silently under-
  * count. Sweeping is idempotent and self-healing; subscribing is neither.
  *
+ * ## Where the host contract is written down
+ *
+ * `docs/HOST-CONTRACT.md` holds the facts this plugin has got wrong at least
+ * once — service names per host version, why `inject` must be an array, why the
+ * browser half loading proves nothing about this half, and the order to check
+ * things in when the panel 404s. Read it before changing anything that talks to
+ * a host service.
+ *
  * @module dsh-tokenledger/plugin
  */
 
