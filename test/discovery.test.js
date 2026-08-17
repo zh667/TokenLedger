@@ -85,13 +85,22 @@ test("the credential sitting beside the base URL is never read", () => {
 	assert.deepEqual(Object.keys(result.sites[0]).sort(), ["baseUrl", "declared", "discovered", "id", "routes"]);
 });
 
-test("a route with no configured endpoint is direct traffic, and is counted rather than shrugged at", () => {
-	const { sites, skipped } = discoverSites({
-		providers: [piAi("deepseek-official", false), piAi("relay", true)],
+test("a shipped route with no configured endpoint stays known as direct traffic", () => {
+	const { sites, directProviders, skipped } = discoverSites({
+		providers: [
+			{
+				provider: "deepseek-official",
+				displayName: "DeepSeek",
+				settingsNs: "llm-deepseek",
+				settingsPath: []
+			},
+			piAi("relay", true)
+		],
 		readSection: () => section({ relay: { baseURL: "https://relay.example/v1" } })
 	});
 	assert.equal(sites.length, 1);
-	assert.equal(skipped, 1, "a missing relay must have a number behind it");
+	assert.deepEqual(directProviders, ["deepseek-official"]);
+	assert.equal(skipped, 0, "a known vendor default is resolved, not skipped");
 });
 
 test("an unparseable base URL is skipped, not turned into a site named after garbage", () => {
@@ -186,7 +195,13 @@ test("an llm service that throws degrades instead of taking the plugin down", ()
 					}
 				: { get: () => ({}) }
 	};
-	assert.deepEqual(discoverFromContext(ctx), { sites: [], providerBaseUrls: {}, skipped: 0, available: false });
+	assert.deepEqual(discoverFromContext(ctx), {
+		sites: [],
+		providerBaseUrls: {},
+		directProviders: [],
+		skipped: 0,
+		available: false
+	});
 });
 
 // --- merging ----------------------------------------------------------------
@@ -212,7 +227,15 @@ test("merging keeps the discovered route map and lets manual entries win per rou
 });
 
 test("merging nothing with nothing is not an error", () => {
-	assert.deepEqual(mergeSites(), { sites: [], providerBaseUrls: {} });
+	assert.deepEqual(mergeSites(), { sites: [], providerBaseUrls: {}, directProviders: [] });
+});
+
+test("a manual relay override wins over a shipped direct default", () => {
+	const merged = mergeSites(
+		{ sites: [], providerBaseUrls: {}, directProviders: ["deepseek-official"] },
+		{ sites: [], providerBaseUrls: { "deepseek-official": "https://relay.example/v1" } }
+	);
+	assert.deepEqual(merged.directProviders, []);
 });
 
 test("a fingerprint result survives the directory being rebuilt", () => {

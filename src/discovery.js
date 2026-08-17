@@ -78,7 +78,7 @@ export function readAtPath(section, path = []) {
  *   `providers` is `listConfigurableProviders()`'s array; `readSection(ns)`
  *   returns a resolved settings section (or undefined); `officialOrigins` names
  *   origins that are the vendor's own endpoint and therefore not a relay.
- * @returns `{ sites, providerBaseUrls, skipped }`. `sites` carries one entry
+ * @returns `{ sites, providerBaseUrls, directProviders, skipped }`. `sites` carries one entry
  *   per distinct origin, each listing the routes that reach it. `skipped`
  *   counts routes whose base URL could not be resolved — the honest reason a
  *   relay might be missing from a report.
@@ -107,6 +107,7 @@ export function discoverSites(options = {}) {
 
 	const byOrigin = new Map();
 	const providerBaseUrls = {};
+	const directProviders = [];
 	let skipped = 0;
 
 	for (const entry of providers) {
@@ -116,9 +117,17 @@ export function discoverSites(options = {}) {
 		const profile = readAtPath(sectionFor(entry.settingsNs), entry.settingsPath ?? []);
 		const baseUrl = profile?.baseURL ?? profile?.baseUrl;
 		if (typeof baseUrl !== "string" || baseUrl === "") {
-			// A catalog route with no configured endpoint is the vendor's own
-			// default — direct traffic, not a site. Not an error, but counted so a
-			// missing relay has a number behind it rather than a shrug.
+			// A shipped catalog route with no override uses its vendor default. Keep
+			// the route in the directory as explicitly direct; dropping it here made
+			// the resolver later mistake that known official route for an unknown one.
+			const builtInDeepSeek =
+				route === "deepseek-official" && entry.settingsNs === "llm-deepseek" && entry.settingsPath?.length === 0;
+			if (entry.declared === false || builtInDeepSeek) {
+				directProviders.push(route);
+				continue;
+			}
+			// A user-declared route without a readable profile proves neither direct
+			// nor relay traffic, so leave it unresolved and make the omission visible.
 			skipped++;
 			continue;
 		}
@@ -148,7 +157,7 @@ export function discoverSites(options = {}) {
 		}
 	}
 
-	return { sites: [...byOrigin.values()], providerBaseUrls, skipped };
+	return { sites: [...byOrigin.values()], providerBaseUrls, directProviders, skipped };
 }
 
 /**
@@ -169,14 +178,14 @@ export function discoverFromContext(ctx, options = {}) {
 	const llm = typeof ctx?.get === "function" ? ctx.get("llm") : undefined;
 	const settings = typeof ctx?.get === "function" ? ctx.get("settings") : undefined;
 	if (llm === undefined || settings === undefined) {
-		return { sites: [], providerBaseUrls: {}, skipped: 0, available: false };
+		return { sites: [], providerBaseUrls: {}, directProviders: [], skipped: 0, available: false };
 	}
 
 	let providers;
 	try {
 		providers = llm.listConfigurableProviders?.() ?? [];
 	} catch {
-		return { sites: [], providerBaseUrls: {}, skipped: 0, available: false };
+		return { sites: [], providerBaseUrls: {}, directProviders: [], skipped: 0, available: false };
 	}
 
 	return {
@@ -217,14 +226,16 @@ export function withKnownSoftware(sites = [], known = new Map()) {
  *
  * @param discovered - {@link discoverSites}' result.
  * @param manual - the normalized `relays` config.
- * @returns `{ sites, providerBaseUrls }` ready for a site registry.
+ * @returns `{ sites, providerBaseUrls, directProviders }` ready for a site registry.
  */
 export function mergeSites(discovered = {}, manual = {}) {
 	const sites = new Map();
 	for (const site of discovered.sites ?? []) sites.set(site.id, site);
 	for (const site of manual.sites ?? []) sites.set(site.id, { ...sites.get(site.id), ...site, discovered: false });
+	const providerBaseUrls = { ...(discovered.providerBaseUrls ?? {}), ...(manual.providerBaseUrls ?? {}) };
 	return {
 		sites: [...sites.values()],
-		providerBaseUrls: { ...(discovered.providerBaseUrls ?? {}), ...(manual.providerBaseUrls ?? {}) }
+		providerBaseUrls,
+		directProviders: (discovered.directProviders ?? []).filter((route) => !(route in providerBaseUrls))
 	};
 }

@@ -185,10 +185,10 @@ export function normalizeRelayConfig(config = {}) {
  *   attributes everything to `direct` and still produces a correct per-model
  *   report.
  */
-export function buildResolver({ sites = [], providerBaseUrls = {} } = {}) {
-	if (sites.length === 0) return undefined;
+export function buildResolver({ sites = [], providerBaseUrls = {}, directProviders = [] } = {}) {
+	if (sites.length === 0 && Object.keys(providerBaseUrls).length === 0 && directProviders.length === 0) return undefined;
 	const registry = new RelaySiteRegistry(sites.map((s) => ({ ...s, type: s.type ?? SITE_TYPES[0] })));
-	return createSiteResolver(registry, providerBaseUrls);
+	return createSiteResolver(registry, providerBaseUrls, directProviders);
 }
 
 /**
@@ -624,7 +624,7 @@ export function apply(ctx, userConfig = {}) {
 	// inherits the property that makes sweeping the right shape for this whole
 	// plugin: it is idempotent and self-healing, so a missed notification costs
 	// one interval rather than a permanently stale answer.
-	let directory = { sites: [], providerBaseUrls: {}, resolveSite: undefined };
+	let directory = { sites: [], providerBaseUrls: {}, directProviders: [], resolveSite: undefined };
 	let directoryKnown = false;
 	// Which relay program each site runs. Its own module, because it is four
 	// pieces of state and a lifecycle — see `fingerprints.js` for why none of
@@ -657,7 +657,7 @@ export function apply(ctx, userConfig = {}) {
 		} catch (error) {
 			// A host that cannot be asked leaves the manual config in charge.
 			logger?.warn?.("tokenledger: could not read the provider directory: %s", error?.message ?? error);
-			discovered = { sites: [], providerBaseUrls: {}, skipped: 0, available: false };
+			discovered = { sites: [], providerBaseUrls: {}, directProviders: [], skipped: 0, available: false };
 		}
 		const merged = mergeSites(discovered, normalizeRelayConfig(config));
 		merged.sites = withKnownSoftware(merged.sites, fingerprints.software);

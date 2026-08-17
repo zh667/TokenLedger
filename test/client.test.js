@@ -545,6 +545,8 @@ test("the model table carries request counts, so a hit rate can be read", async 
 	assert.ok(text.includes("40.3%"));
 	assert.ok(text.includes("11.7%"));
 	assert.ok(text.includes("27,492"));
+	assert.ok(text.includes("30,781"), "total reconciles input, cache and output with the site row");
+	assert.ok(text.includes("table.total"));
 });
 
 test("a relay whose software is unrecognised gets one honest line, not an empty card", async () => {
@@ -1161,7 +1163,7 @@ test("the footer says nothing about an index", async () => {
 	}
 });
 
-test("freshness reports when the logs were READ, not when they last changed", async () => {
+test("freshness reports when logs were read while activity uses the event time", async () => {
 	// The checkpoint table only advances on a session that moved, so after a
 	// quiet half hour it sat half an hour behind while the figures were exactly
 	// right — reported as freshness, that reads as a stuck panel, and it was
@@ -1172,7 +1174,11 @@ test("freshness reports when the logs were READ, not when they last changed", as
 		render(exports.Footer, {
 			data: {
 				lastSweepAt: now - 4_000,
-				diagnostics: { lastUpdatedAt: now - 35 * 60_000, unattributedRows: 0 }
+				diagnostics: {
+					lastUpdatedAt: now - 2_000,
+					lastUsageAt: now - 35 * 60_000,
+					unattributedRows: 0
+				}
 			},
 			translate: T
 		})

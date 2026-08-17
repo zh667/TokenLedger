@@ -30,7 +30,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { createUsageState, totalTokens, cacheHitRate, parseRouteKey, routeKey, zeroBuckets } from "./usage.js";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 const COLUMNS = [
 	"inputTokens",
@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS checkpoints (
   logRevision  TEXT,
   cursor       TEXT NOT NULL,
   dshVersion   TEXT,
+  lastUsageAt  INTEGER,
   updatedAt    INTEGER NOT NULL
 ) WITHOUT ROWID;
 `;
@@ -173,9 +174,8 @@ export class LedgerStore {
 		if (version !== SCHEMA_VERSION) {
 			// The index is disposable by design, so a version mismatch is discarded
 			// rather than migrated. The logs it was built from are untouched.
-			this.#db.exec("DELETE FROM session_rollups");
-			this.#db.exec("DELETE FROM sessions");
-			this.#db.exec("DELETE FROM checkpoints");
+			this.#db.exec("DROP TABLE IF EXISTS session_rollups; DROP TABLE IF EXISTS sessions; DROP TABLE IF EXISTS checkpoints;");
+			this.#db.exec(SCHEMA);
 			this.#db.prepare("UPDATE meta SET value = ? WHERE key = 'schemaVersion'").run(String(SCHEMA_VERSION));
 		}
 	}
@@ -194,13 +194,14 @@ export class LedgerStore {
 		);
 		this.#stmt.deleteSession = this.#db.prepare("DELETE FROM sessions WHERE sessionId = ?");
 		this.#stmt.upsertCheckpoint = this.#db.prepare(
-			`INSERT INTO checkpoints (sessionId, consumedSeq, logRevision, cursor, dshVersion, updatedAt)
-			 VALUES (?, ?, ?, ?, ?, ?)
+			`INSERT INTO checkpoints (sessionId, consumedSeq, logRevision, cursor, dshVersion, lastUsageAt, updatedAt)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT (sessionId) DO UPDATE SET
 			   consumedSeq = excluded.consumedSeq,
 			   logRevision = excluded.logRevision,
 			   cursor      = excluded.cursor,
 			   dshVersion  = excluded.dshVersion,
+			   lastUsageAt = excluded.lastUsageAt,
 			   updatedAt   = excluded.updatedAt`
 		);
 		this.#stmt.deleteCheckpoint = this.#db.prepare("DELETE FROM checkpoints WHERE sessionId = ?");
@@ -234,6 +235,7 @@ export class LedgerStore {
 			consumedSeq: Number(row.consumedSeq),
 			logRevision: row.logRevision ?? undefined,
 			dshVersion: row.dshVersion ?? undefined,
+			lastUsageAt: row.lastUsageAt === null ? undefined : Number(row.lastUsageAt),
 			updatedAt: Number(row.updatedAt)
 		};
 	}
@@ -245,6 +247,7 @@ export class LedgerStore {
 			consumedSeq: Number(row.consumedSeq),
 			logRevision: row.logRevision ?? undefined,
 			dshVersion: row.dshVersion ?? undefined,
+			lastUsageAt: row.lastUsageAt === null ? undefined : Number(row.lastUsageAt),
 			updatedAt: Number(row.updatedAt)
 		}));
 	}
@@ -275,6 +278,7 @@ export class LedgerStore {
 		state.consumedSeq = Number(checkpoint.consumedSeq);
 		state.lastSample = cursor.lastSample ?? null;
 		state.currentRoute = cursor.currentRoute ?? null;
+		state.lastUsageAt = checkpoint.lastUsageAt === null ? undefined : Number(checkpoint.lastUsageAt);
 		return state;
 	}
 
@@ -314,6 +318,7 @@ export class LedgerStore {
 				options.logRevision ?? null,
 				cursor,
 				options.dshVersion ?? null,
+				state.lastUsageAt ?? null,
 				updatedAt
 			);
 		});
@@ -453,7 +458,8 @@ export class LedgerStore {
 				   (SELECT COUNT(*) FROM checkpoints)                  AS sessionsTracked,
 				   (SELECT MIN(day) FROM session_rollups)              AS firstDay,
 				   (SELECT MAX(day) FROM session_rollups)              AS lastDay,
-				   (SELECT MAX(updatedAt) FROM checkpoints)            AS lastUpdatedAt`
+				   (SELECT MAX(lastUsageAt) FROM checkpoints)           AS lastUsageAt,
+				   (SELECT MAX(updatedAt) FROM checkpoints)             AS lastUpdatedAt`
 			)
 			.get();
 		const unknownRoutes = this.#db
@@ -466,6 +472,7 @@ export class LedgerStore {
 			sessionsTracked: Number(counts.sessionsTracked),
 			firstDay: counts.firstDay ?? undefined,
 			lastDay: counts.lastDay ?? undefined,
+			lastUsageAt: counts.lastUsageAt === null ? undefined : Number(counts.lastUsageAt),
 			lastUpdatedAt: counts.lastUpdatedAt === null ? undefined : Number(counts.lastUpdatedAt),
 			unattributedRows: Number(unknownRoutes.n)
 		};

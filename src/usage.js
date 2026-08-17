@@ -278,7 +278,7 @@ function routeBucketOf(entry, key) {
  * stays exact without replaying the whole log.
  */
 export function createUsageState() {
-	return { days: new Map(), lastSample: null, currentRoute: null, consumedSeq: -1 };
+	return { days: new Map(), lastSample: null, currentRoute: null, lastUsageAt: undefined, consumedSeq: -1 };
 }
 
 /**
@@ -307,6 +307,9 @@ export function applyUsageDelta(state, events, options = {}) {
 
 		const sample = sampleOf(event);
 		if (sample === undefined) continue;
+		if (typeof event.time === "number" && Number.isFinite(event.time)) {
+			state.lastUsageAt = Math.max(state.lastUsageAt ?? -Infinity, event.time);
+		}
 
 		const provenance = provenanceOf(event) ?? currentRoute;
 		const provider = provenance?.provider ?? UNKNOWN;

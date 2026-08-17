@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { normalizeRelayConfig, staleAttributions, sweep } from "../src/plugin.js";
+import { buildResolver, normalizeRelayConfig, staleAttributions, sweep } from "../src/plugin.js";
 import { LedgerStore } from "../src/store.js";
 import { RelaySiteRegistry, createSiteResolver } from "../src/relay-sites.js";
+import { DIRECT } from "../src/usage.js";
 
 const DAY = Date.parse("2026-08-14T10:00:00");
 let seq = 0;
@@ -320,6 +321,12 @@ test("no relays configured means no resolver, and everything is direct", async (
 		await sweep(fakePersistence(sessions), store, { resolveSite });
 		assert.deepEqual(store.bySite().map((s) => s.site), ["direct"], "still a correct report, just no site dimension");
 	});
+});
+
+test("a shipped provider default resolves as official even without a relay site", () => {
+	const resolveSite = buildResolver({ directProviders: ["deepseek-official"] });
+	assert.equal(resolveSite("deepseek-official"), DIRECT);
+	assert.equal(resolveSite("removed-route"), undefined, "an absent route remains unknown");
 });
 
 test("a malformed relay entry is skipped rather than poisoning the map", async () => {
