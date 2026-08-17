@@ -189,17 +189,134 @@ test("an unlimited New API key reads as available even at zero remaining", async
 	assert.equal(result.isAvailable, true);
 });
 
-test("Sub2API reports its wallet and plan", async () => {
-	const result = await readBalance({
-		scheme: "sub2api",
-		origin: "https://s.example",
-		apiKey: "k",
-		fetch: okJson({ unit: "USD", balance: "4.768", remaining: "3.2", planName: "pro", isValid: true })
+// --- Sub2API's three shapes ----------------------------------------------------
+//
+// `/v1/usage` answers in one of three shapes and only ONE of them carries a
+// `balance`. Read off the gateway's own handler rather than inferred from a
+// sample: `quota_limited` when the key has a total quota or rate limits,
+// `unrestricted` with a `subscription` object when the key's group is a plan,
+// and `unrestricted` with a `balance` for a plain wallet.
+
+const sub2api = (body) => readBalance({ scheme: "sub2api", origin: "https://s.example", apiKey: "k", fetch: okJson(body) });
+
+test("Sub2API's wallet shape reads as a wallet", async () => {
+	const result = await sub2api({
+		mode: "unrestricted",
+		isValid: true,
+		planName: "钱包余额",
+		remaining: 4.768,
+		unit: "USD",
+		balance: 4.768
 	});
 	assert.equal(result.total, 4.768);
-	assert.equal(result.remaining, 3.2);
-	assert.equal(result.plan, "pro");
 	assert.equal(result.currency, "USD");
+	assert.equal(result.isAvailable, true);
+	// The wallet shape sends a `planName` too, and it is a placeholder. Showing
+	// it produces a card claiming the account is on a plan called "wallet".
+	assert.equal(result.plan, undefined);
+	assert.equal("windows" in result, false);
+});
+
+test("a quota-limited key reports its quota and every configured window", async () => {
+	const result = await sub2api({
+		mode: "quota_limited",
+		isValid: true,
+		status: "active",
+		quota: { limit: 20, used: 8, remaining: 12, unit: "USD" },
+		remaining: 12,
+		unit: "USD",
+		rate_limits: [
+			{ window: "5h", limit: 100, used: 4, remaining: 96, reset_at: "2026-08-17T17:00:00Z" },
+			{ window: "1d", limit: 400, used: 200, remaining: 200 },
+			{ window: "7d", limit: 1000, used: 100, remaining: 900, reset_at: "2026-08-21T00:00:00Z" }
+		]
+	});
+	assert.equal(result.total, 12, "remaining quota is the balance");
+	assert.equal(result.granted, 20);
+	assert.equal(result.used, 8);
+	assert.deepEqual(result.windows, [
+		{ kind: "session", minutes: 300, usedPercent: 4, resetsAt: "2026-08-17T17:00:00.000Z" },
+		{ kind: "daily", usedPercent: 50 },
+		{ kind: "weekly", usedPercent: 10, resetsAt: "2026-08-21T00:00:00.000Z" }
+	]);
+});
+
+test("a lapsed window sends no reset_at, and none is invented", async () => {
+	// The gateway omits it once the window has expired — the next request opens
+	// a fresh one, so there is no instant to show.
+	const result = await sub2api({
+		mode: "quota_limited",
+		isValid: true,
+		rate_limits: [{ window: "5h", limit: 100, used: 0, remaining: 100, window_start: null }]
+	});
+	assert.equal("resetsAt" in result.windows[0], false);
+});
+
+test("a subscription key reports its periods, which is where its numbers live", async () => {
+	// This shape has no `balance` at all. The previous reader looked for one,
+	// found nothing, and rendered a card with nothing on it.
+	const result = await sub2api({
+		mode: "unrestricted",
+		isValid: true,
+		planName: "Claude 拼车 Pro",
+		unit: "USD",
+		remaining: 3.5,
+		subscription: {
+			daily_usage_usd: 1.5,
+			weekly_usage_usd: 12,
+			monthly_usage_usd: 30,
+			daily_limit_usd: 5,
+			weekly_limit_usd: 30,
+			monthly_limit_usd: null,
+			weekly_window_start: "2026-08-14T00:00:00Z",
+			expires_at: "2026-09-01T00:00:00Z"
+		}
+	});
+	assert.equal(result.plan, "Claude 拼车 Pro");
+	assert.equal(result.total, 3.5);
+	assert.deepEqual(result.windows, [
+		{ kind: "daily", usedPercent: 30 },
+		// The gateway reports when the window OPENED; the panel asks when it
+		// frees up.
+		{ kind: "weekly", usedPercent: 40, resetsAt: "2026-08-21T00:00:00.000Z" }
+	]);
+	assert.equal(result.windows.some((w) => w.kind === "monthly"), false, "an uncapped period is not a window at zero");
+});
+
+test("a subscription with no period caps is unlimited, not minus one dollar", async () => {
+	// The gateway returns -1 for "no limit is configured anywhere". Rendered as
+	// money that is a negative figure meaning nothing.
+	const result = await sub2api({
+		mode: "unrestricted",
+		isValid: true,
+		planName: "内部",
+		unit: "USD",
+		remaining: -1,
+		subscription: { daily_limit_usd: null, weekly_limit_usd: null, monthly_limit_usd: null }
+	});
+	assert.equal(result.unlimited, true);
+	assert.equal(result.total, undefined);
+	assert.equal("windows" in result, false);
+});
+
+test("a key that is out of quota is not an available account", async () => {
+	// `isValid` stays true for exhausted and expired keys — upstream means "we
+	// recognise this key", not "you can spend on it".
+	for (const status of ["quota_exhausted", "expired", "disabled"]) {
+		const result = await sub2api({ mode: "quota_limited", isValid: true, status, quota: { limit: 20, used: 20, remaining: 0 } });
+		assert.equal(result.isAvailable, false, status);
+	}
+	const active = await sub2api({ mode: "quota_limited", isValid: true, status: "active", quota: { limit: 20, used: 1, remaining: 19 } });
+	assert.equal(active.isAvailable, true);
+});
+
+test("a window the gateway names something we do not know is dropped, not guessed", async () => {
+	const result = await sub2api({
+		mode: "quota_limited",
+		isValid: true,
+		rate_limits: [{ window: "30d", limit: 10, used: 1 }, { window: "5h", limit: 10, used: 1 }]
+	});
+	assert.deepEqual(result.windows.map((w) => w.kind), ["session"]);
 });
 
 // --- reaching the host -------------------------------------------------------
