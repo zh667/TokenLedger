@@ -40,6 +40,36 @@
  * @module dsh-tokenledger/projects
  */
 
+/**
+ * What the workspace registry is called, newest name first.
+ *
+ * `@deepseek-ai/dsh-workspace@0.1.0-rc.6` provides `workspaceRegistry`; the
+ * 0.0.1-rc.x line that npm's `latest` tag points at provides `workspace`. The
+ * API is identical — `resolveByPath`, `list`, `get` — so only the name has to
+ * be tolerated, and asking for only one of them meant project titles silently
+ * never resolved and every row fell back to its directory name.
+ */
+const REGISTRY_NAMES = ["workspaceRegistry", "workspace"];
+
+/**
+ * The workspace registry this composition provides, under whichever name.
+ *
+ * @param ctx - the Cordis context.
+ * @returns the service, or undefined — which is a supported state, not a fault.
+ */
+export function workspaceRegistry(ctx) {
+	if (typeof ctx?.get !== "function") return undefined;
+	for (const name of REGISTRY_NAMES) {
+		try {
+			const found = ctx.get(name);
+			if (found !== undefined) return found;
+		} catch {
+			// A context that refuses an undeclared name simply has not got it.
+		}
+	}
+	return undefined;
+}
+
 /** Last path segment, for either separator. */
 export function basename(path) {
 	const parts = String(path).split(/[\\/]+/).filter((segment) => segment !== "");

@@ -242,7 +242,7 @@ test("a wait that never ends says so, and names what the context does have", asy
 	// you read.
 	const logged = [];
 	const ctx = {
-		get: (name) => (name === "webServer" || name === "settings" ? {} : undefined),
+		get: (name) => (name === "settings" || name === "llm" ? {} : undefined),
 		inject: () => {}, // scheduled and never fires, exactly like the real bug
 		effect: (fn) => fn()
 	};
@@ -253,12 +253,14 @@ test("a wait that never ends says so, and names what the context does have", asy
 		logger: { info: (...a) => logged.push(a.join(" ")), warn: (...a) => logged.push(a.join(" ")) }
 	});
 
-	assert.ok(logged.some((line) => line.includes("waiting for httpServer")), "the wait has to announce itself");
+	const waiting = logged.find((line) => line.includes("waiting for"));
+	assert.ok(waiting, "the wait has to announce itself");
+	assert.ok(waiting.includes("webServer or httpServer"), "and name every name it will accept");
 	await new Promise((resolve) => setTimeout(resolve, 20));
 
-	const nag = logged.find((line) => line.includes("still no httpServer"));
+	const nag = logged.find((line) => line.includes("still no web server"));
 	assert.ok(nag, "a wait that never ends must eventually say so");
-	assert.ok(nag.includes("webServer"), "and name the service that IS there, which is the whole clue");
+	assert.ok(nag.includes("settings"), "and name the services that ARE there, which is the whole clue");
 	assert.equal(nag.includes("the panel will 404"), true, "in the words the symptom appears as");
 });
 
@@ -278,7 +280,7 @@ test("the nag is cancelled once the routes attach", async () => {
 		logger: { info: (...a) => logged.push(a.join(" ")), warn: (...a) => logged.push(a.join(" ")) }
 	});
 	await new Promise((resolve) => setTimeout(resolve, 20));
-	assert.equal(logged.some((line) => line.includes("still no httpServer")), false);
+	assert.equal(logged.some((line) => line.includes("still no web server")), false);
 	assert.ok(logged.some((line) => line.includes("serving")));
 });
 
