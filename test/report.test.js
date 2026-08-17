@@ -123,6 +123,70 @@ const seeded = () => {
 	return store;
 };
 
+test("diagnostics says which route landed in which bucket", async () => {
+	// Three rounds of debugging a missing relay row went by without this,
+	// reasoning about the resolver from the outside — while the answer sat in
+	// the index the whole time, because the rollup row keys on the ROUTE name.
+	const { LedgerStore } = await import("../src/store.js");
+	const { RelaySiteRegistry, createSiteResolver } = await import("../src/relay-sites.js");
+	const { applyUsageDelta } = await import("../src/usage.js");
+
+	const registry = new RelaySiteRegistry([{ id: "relay.example", type: "newapi", baseUrl: "https://relay.example/v1" }]);
+	const providerBaseUrls = { nine: "https://relay.example/v1", official: "https://api.deepseek.com" };
+	const directory = { sites: registry.list(), providerBaseUrls, resolveSite: createSiteResolver(registry, providerBaseUrls) };
+
+	const store = LedgerStore.open(":memory:");
+	try {
+		// Folded when the directory did NOT yet know the relay, which is how the
+		// traffic ends up somewhere its current configuration disagrees with.
+		const past = createSiteResolver(new RelaySiteRegistry([]), {});
+		const state = store.loadState("s1");
+		applyUsageDelta(
+			state,
+			[
+				{
+					seq: 1,
+					time: Date.parse("2026-08-17T10:00:00Z"),
+					type: "assistant/message",
+					data: { turn: 1, step: 1, message: { role: "assistant", source: { kind: "model", provider: "nine", model: "v4" } }, usage: { inputTokens: 900, outputTokens: 0 } }
+				}
+			],
+			{ resolveSite: past }
+		);
+		store.commitSession("s1", state, {});
+
+		const text = await runCommand("diagnostics", { store, sites: () => directory.sites, directory: () => directory });
+
+		// Half one: what the CURRENT configuration says.
+		assert.match(text, /路由归属/);
+		assert.match(text, /nine\s+https:\/\/relay\.example\/v1\s+relay\.example/, "the route resolves now");
+		assert.match(text, /official\s+https:\/\/api\.deepseek\.com\s+直连/, "and this one really is direct");
+
+		// Half two: where the traffic actually sits, which is the half that
+		// exposes the disagreement.
+		assert.match(text, /索引里的路由/);
+		assert.match(text, /未知路由\s+nine\s+900/, "the route name is what makes this diagnosable");
+		assert.match(text, /用同一个路由名把它配回去/, "and it has to say what to do about it");
+	} finally {
+		store.close();
+	}
+});
+
+test("diagnostics is honest when there is no directory to report", async () => {
+	const { LedgerStore } = await import("../src/store.js");
+	const store = LedgerStore.open(":memory:");
+	try {
+		const text = await runCommand("diagnostics", { store, sites: () => [] });
+		assert.match(text, /自动发现没有看到任何带 baseURL 的 provider 路由/);
+		assert.match(text, /索引里还没有任何用量/);
+		// A composition with no relays is a normal state, not a fault, and the
+		// wording has to leave room for that while naming the other causes.
+		assert.match(text, /这本身可能是对的/);
+	} finally {
+		store.close();
+	}
+});
+
 test("the command renders a report from the store", async () => {
 	const store = seeded();
 	try {
