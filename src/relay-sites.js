@@ -149,6 +149,8 @@ export class RelaySiteRegistry {
  * @param registry - the relay-site registry.
  * @param providerBaseUrls - `Map<providerId, baseUrl>` or a plain object,
  *   describing how each DSH provider route is currently configured.
+ * @param directProviders - provider ids whose shipped default is known to call
+ *   the vendor directly even though it has no configured base URL.
  * @returns `(providerId) => siteId | DIRECT | undefined`. A site id means the
  *   route points at a known relay; `DIRECT` means the route is configured and
  *   points at no relay, so the call went straight to the vendor; `undefined`
@@ -159,15 +161,20 @@ export class RelaySiteRegistry {
  *   merging them put relay traffic under "direct/official" on a real install
  *   whenever a route had since been renamed or removed.
  */
-export function createSiteResolver(registry, providerBaseUrls) {
+export function createSiteResolver(registry, providerBaseUrls, directProviders = []) {
 	const lookup =
 		providerBaseUrls instanceof Map ? providerBaseUrls : new Map(Object.entries(providerBaseUrls ?? {}));
+	const direct = directProviders instanceof Set ? directProviders : new Set(directProviders);
 	const cache = new Map();
 	return (providerId) => {
 		if (cache.has(providerId)) return cache.get(providerId);
 		// Presence in the directory is the thing being asked, so it is checked
 		// before the origin match rather than inferred from its failure.
-		const answer = lookup.has(providerId) ? (registry.matchOrigin(lookup.get(providerId))?.id ?? DIRECT) : undefined;
+		const answer = direct.has(providerId)
+			? DIRECT
+			: lookup.has(providerId)
+				? (registry.matchOrigin(lookup.get(providerId))?.id ?? DIRECT)
+				: undefined;
 		cache.set(providerId, answer);
 		return answer;
 	};

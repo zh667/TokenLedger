@@ -1048,6 +1048,13 @@ window.__ModuleLoader__.load({
 		const MODEL_COLUMNS = [
 			{ id: "model", label: "table.model", get: (m) => m.model, numeric: false },
 			{ id: "requests", label: "table.requests", get: (m) => m.requests ?? 0 },
+			{
+				id: "tokens",
+				label: "table.total",
+				get: (m) =>
+					m.tokens ??
+					(m.inputTokens ?? 0) + (m.cacheReadTokens ?? 0) + (m.cacheWriteTokens ?? 0) + (m.outputTokens ?? 0)
+			},
 			{ id: "inputTokens", label: "table.input", get: (m) => m.inputTokens ?? 0 },
 			{ id: "cacheReadTokens", label: "table.cache", get: (m) => m.cacheReadTokens ?? 0 },
 			{ id: "outputTokens", label: "table.output", get: (m) => m.outputTokens ?? 0 },
@@ -1056,7 +1063,7 @@ window.__ModuleLoader__.load({
 
 		/** Same columns as the text report, so the two cannot disagree. */
 		function ModelTable({ data, translate }) {
-			const [sort, setSort] = react.useState({ by: "inputTokens", desc: true });
+			const [sort, setSort] = react.useState({ by: "tokens", desc: true });
 			const priced = new Map((data.priced?.rows ?? []).map((r) => [r.model, r]));
 			const rows = (data.models ?? []).map((m) => ({ ...m, ...priced.get(m.model) }));
 			if (rows.length === 0) return jsx("p", { className: S.note, children: translate("table.none") });
@@ -1100,6 +1107,7 @@ window.__ModuleLoader__.load({
 									children: [
 										jsx("td", { title: m.model, children: m.model }),
 										jsx("td", { children: fmt(m.requests) }),
+										jsx("td", { children: fmt(MODEL_COLUMNS[2].get(m)) }),
 										jsx("td", { children: fmt(m.inputTokens) }),
 										jsxs("td", {
 											children: [
@@ -1420,10 +1428,10 @@ window.__ModuleLoader__.load({
 						title: typeof checked === "number" ? new Date(checked).toLocaleString() : "",
 						children: translate("footer.updated", { ago: agoLabel(checked, translate) })
 					}),
-					typeof d.lastUpdatedAt === "number"
+					typeof d.lastUsageAt === "number"
 						? jsx("span", {
-								title: new Date(d.lastUpdatedAt).toLocaleString(),
-								children: ` · ${translate("footer.lastActivity", { ago: agoLabel(d.lastUpdatedAt, translate) })}`
+								title: new Date(d.lastUsageAt).toLocaleString(),
+								children: ` · ${translate("footer.lastActivity", { ago: agoLabel(d.lastUsageAt, translate) })}`
 							})
 						: null,
 					d.unattributedRows > 0
@@ -1693,6 +1701,7 @@ window.__ModuleLoader__.load({
 			"activity.more": "多",
 			"table.model": "模型",
 			"table.requests": "请求",
+			"table.total": "总计",
 			"table.input": "输入",
 			"table.cache": "缓存",
 			"table.output": "输出",
@@ -1788,6 +1797,7 @@ window.__ModuleLoader__.load({
 			"activity.more": "More",
 			"table.model": "Model",
 			"table.requests": "Req",
+			"table.total": "Total",
 			"table.input": "Input",
 			"table.cache": "Cache",
 			"table.output": "Output",

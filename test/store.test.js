@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import { LedgerStore } from "../src/store.js";
-import { applyUsageDelta } from "../src/usage.js";
+import { applyUsageDelta, createUsageState } from "../src/usage.js";
 import { RelaySiteRegistry, createSiteResolver } from "../src/relay-sites.js";
 
 const DAY_A = Date.parse("2026-08-14T10:00:00");
@@ -229,12 +233,14 @@ test("diagnostics report counts and identifiers only", () => {
 		store.commitSession("s1", state, { dshVersion: "0.1.0-rc.6" });
 
 		const d = store.diagnostics();
-		assert.equal(d.schemaVersion, 2);
+		assert.equal(d.schemaVersion, 3);
 		assert.equal(d.sessionsTracked, 1);
 		assert.equal(d.sessionsWithUsage, 1);
 		assert.equal(d.firstDay, "2026-08-14");
 		assert.equal(d.lastDay, "2026-08-15");
+		assert.equal(d.lastUsageAt, DAY_B, "last usage comes from the event timestamp");
 		assert.equal(d.unattributedRows, 1, "the header-less sample is visible as unattributed");
+		assert.equal(store.checkpointFor("s1").lastUsageAt, DAY_B, "the event timestamp survives a restart");
 		assert.equal(store.checkpointFor("s1").dshVersion, "0.1.0-rc.6");
 		assert.equal(JSON.stringify(d).includes("prompt"), false);
 	});
@@ -253,17 +259,34 @@ test("csv export quotes cells that need it", () => {
 	});
 });
 
-test("a schema version bump discards the index rather than migrating it", () => {
-	const store = LedgerStore.open(":memory:");
-	const state = { days: new Map(), lastSample: null, currentRoute: null, consumedSeq: -1 };
-	applyUsageDelta(state, [message(1, 1, "deepseek", "v4", usage(100, 10))]);
-	store.commitSession("s1", state);
-	assert.equal(store.totals().inputTokens, 100);
-	store.close();
-	// A real bump is exercised by the migrate path on open; here we assert the
-	// contract the path relies on: the index is reconstructible from nothing.
-	const fresh = LedgerStore.open(":memory:");
-	assert.equal(fresh.totals().inputTokens, 0);
-	assert.equal(fresh.diagnostics().rollupRows, 0);
-	fresh.close();
+test("opening a v2 database rebuilds the disposable index with the v3 checkpoint shape", () => {
+	const dir = mkdtempSync(join(tmpdir(), "tokenledger-schema-"));
+	const path = join(dir, "ledger.sqlite");
+	try {
+		const seeded = LedgerStore.open(path);
+		const state = createUsageState();
+		applyUsageDelta(state, [message(1, 1, "deepseek", "v4", usage(100, 10))]);
+		seeded.commitSession("s1", state);
+		seeded.close();
+
+		const old = new DatabaseSync(path);
+		old.exec(`
+			DROP TABLE checkpoints;
+			CREATE TABLE checkpoints (
+			  sessionId TEXT PRIMARY KEY, consumedSeq INTEGER NOT NULL, logRevision TEXT,
+			  cursor TEXT NOT NULL, dshVersion TEXT, updatedAt INTEGER NOT NULL
+			) WITHOUT ROWID;
+			UPDATE meta SET value = '2' WHERE key = 'schemaVersion';
+		`);
+		old.prepare("INSERT INTO checkpoints VALUES (?, ?, ?, ?, ?, ?)").run("s1", 1, "r1", "{}", null, DAY_A);
+		old.close();
+
+		const migrated = LedgerStore.open(path);
+		assert.equal(migrated.diagnostics().schemaVersion, 3);
+		assert.equal(migrated.diagnostics().rollupRows, 0, "old projections are rebuilt from logs instead of altered in place");
+		assert.equal(migrated.checkpointFor("s1"), undefined);
+		migrated.close();
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });

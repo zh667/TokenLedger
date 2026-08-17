@@ -148,6 +148,7 @@ test("a replacement that lands on the next day unwinds the first day", () => {
 	assert.equal(state.days.get("2026-08-14").totals.requests, 0, "the superseded day is emptied");
 	assert.equal(state.days.get("2026-08-14").totals.outputTokens, 0);
 	assert.equal(state.days.get("2026-08-15").totals.outputTokens, 50);
+	assert.equal(state.lastUsageAt, DAY_B, "activity time follows the usage event, not the fold time");
 });
 
 test("consumedSeq advances so a caller can checkpoint", () => {
