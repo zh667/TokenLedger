@@ -35,6 +35,7 @@
 
 import { createRequire } from "node:module";
 
+import { describeProject } from "./projects.js";
 import { dailyModels, dayKey, fromDaysAgo, hostTimeZone, monthStart } from "./usage.js";
 
 /**
@@ -136,7 +137,7 @@ export function parseQuery(url) {
  * One request rather than six: the panel renders as a unit, and six requests
  * would let its sections disagree with each other while they land.
  *
- * @param deps - `{ store, sites, priced }`.
+ * @param deps - `{ store, sites, priced, projectTitles }`.
  * @param query - `{ range, site }` from {@link parseQuery}.
  */
 export function usagePayload(deps, query) {
@@ -180,6 +181,10 @@ export function usagePayload(deps, query) {
 		// Site rows are never filtered by the current selection: the breakdown is
 		// how you CHANGE that selection, so hiding the others would strand you.
 		sites: store.bySite(range),
+		// Which project burned it — keyed on the directory the session ran in,
+		// labelled with the workspace title when there is one. See `projects.js`
+		// for why the directory is the key and the workspace only the label.
+		projects: store.byProject(range, site).map((row) => ({ ...row, ...describeProject(row.project, deps.projectTitles?.().get(row.project)) })),
 		providers: store.byProvider(range, site),
 		// Configured/discovered sites carry the routes and software behind each
 		// row, which the totals alone cannot say.

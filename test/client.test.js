@@ -339,6 +339,11 @@ const payload = (over = {}) => ({
 		{ site: "api.relay-one.example", tokens: 30781 }
 	],
 	directory: [{ id: "api.relay-one.example", routes: ["api99"], discovered: true }],
+	projects: [
+		{ project: "/home/me/ledger", label: "Token Ledger", path: "/home/me/ledger", titled: true, tokens: 47085 },
+		{ project: "/home/me/scratch", label: "scratch", path: "/home/me/scratch", tokens: 30000 },
+		{ project: "", unattributed: true, tokens: 781 }
+	],
 	diagnostics: { lastUpdatedAt: Date.parse("2026-08-15T13:32:00"), unattributedRows: 0 },
 	...over
 });
@@ -767,6 +772,65 @@ test("both dictionaries carry every window key", async () => {
 		assert.equal(typeof exports.en[key], "string", `${key} is missing from en`);
 		assert.notEqual(exports.en[key], "", key);
 	}
+});
+
+// --- projects ----------------------------------------------------------------
+
+test("each project is a row, biggest first, with its share", async () => {
+	const { exports, render } = await loadBundle();
+	const tree = render(exports.ProjectRows, { data: payload(), translate: T });
+	const rows = findAll(tree, "tkl_row");
+	assert.equal(rows.length, 3);
+
+	const text = textOf(tree);
+	assert.ok(text.includes("Token Ledger"), "a registered workspace lends its title");
+	assert.ok(text.includes("scratch"), "an unregistered directory is named by its last segment");
+	assert.ok(text.includes("60%"), "47085 of 77866");
+});
+
+test("a session with no recorded directory gets a named row, not silence", async () => {
+	// It is the only way the per-project rows can still add up to the total the
+	// rest of the panel shows. Dropping it would make the numbers disagree with
+	// no visible reason.
+	const { exports, render } = await loadBundle();
+	const text = textOf(render(exports.ProjectRows, { data: payload(), translate: T }));
+	assert.ok(text.includes("projects.unattributed"));
+});
+
+test("a project row carries its full path, because two can share a name", async () => {
+	const { exports, render } = await loadBundle();
+	const rows = findAll(render(exports.ProjectRows, { data: payload(), translate: T }), "tkl_row");
+	assert.equal(rows[0].props.title, "/home/me/ledger");
+	// Shown inline only where the label came from a workspace title — otherwise
+	// the label already IS the last segment of the path.
+	assert.equal(findAll(rows[0], "tkl_rowPath").length, 1);
+	assert.equal(findAll(rows[1], "tkl_rowPath").length, 0);
+});
+
+test("project rows are a breakdown, not a second filter", async () => {
+	// The relay picker is the panel's one selection. A row that looks clickable
+	// and is not is worse than one that plainly is not.
+	const { exports, render } = await loadBundle();
+	for (const row of findAll(render(exports.ProjectRows, { data: payload(), translate: T }), "tkl_row")) {
+		assert.equal(row.type, "div", "a button would promise a drill-down that does not exist");
+		assert.equal(row.props.onClick, undefined);
+		assert.ok(row.props.className.includes("tkl_rowStatic"));
+	}
+});
+
+test("no projects yet says so rather than rendering an empty box", async () => {
+	const { exports, render } = await loadBundle();
+	for (const projects of [[], undefined]) {
+		const text = textOf(render(exports.ProjectRows, { data: payload({ projects }), translate: T }));
+		assert.equal(text.trim(), "projects.none");
+	}
+});
+
+test("both dictionaries carry every project key", async () => {
+	const { exports } = await loadBundle();
+	const keys = Object.keys(exports.zh).filter((key) => key.startsWith("projects.") || key === "section.projects");
+	assert.ok(keys.length >= 3, `expected the section title and both states: ${keys.length}`);
+	for (const key of keys) assert.equal(typeof exports.en[key], "string", `${key} is missing from en`);
 });
 
 test("unattributed rows are surfaced on the page, not only in a command", async () => {

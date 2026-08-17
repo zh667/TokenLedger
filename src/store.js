@@ -30,7 +30,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { createUsageState, totalTokens, cacheHitRate, parseRouteKey, routeKey, zeroBuckets } from "./usage.js";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 const COLUMNS = [
 	"inputTokens",
@@ -65,6 +65,25 @@ CREATE TABLE IF NOT EXISTS session_rollups (
 CREATE INDEX IF NOT EXISTS idx_rollups_day  ON session_rollups (day);
 CREATE INDEX IF NOT EXISTS idx_rollups_site ON session_rollups (site, day);
 
+-- Which directory a session ran in, which is what "project" means here.
+--
+-- Its own table rather than a column on session_rollups: the project is a
+-- property of the SESSION, not of each (day, site, model) rollup row. As a
+-- column it would store the same path dozens of times per session and widen a
+-- primary key that is already five wide. Joined at query time instead.
+--
+-- The project column is the header's cwd with a trailing slash removed and
+-- nothing else done to it. A session whose header carries no cwd is stored with
+-- the empty string: present and countable, which is the point — a session that
+-- cannot be attributed has to be visible as such, never quietly missing from a
+-- total.
+CREATE TABLE IF NOT EXISTS sessions (
+  sessionId TEXT PRIMARY KEY,
+  project   TEXT NOT NULL DEFAULT ''
+) WITHOUT ROWID;
+
+CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions (project);
+
 CREATE TABLE IF NOT EXISTS checkpoints (
   sessionId    TEXT PRIMARY KEY,
   consumedSeq  INTEGER NOT NULL,
@@ -91,6 +110,25 @@ function rangeClause(range = {}, site = undefined, prefix = "") {
 		params.push(site);
 	}
 	return { sql: where.length > 0 ? `WHERE ${where.join(" AND ")}` : "", params };
+}
+
+/**
+ * A session's project directory, as stored.
+ *
+ * Only a trailing separator is removed. Resolving symlinks would mean an
+ * `fs.realpath` per session per sweep, against directories that may have been
+ * deleted since — cost and a failure mode, to merge two spellings of a path
+ * that in practice DSH records identically because the header is stamped once
+ * at session creation and never rewritten.
+ *
+ * Absent becomes `''` rather than null: a session with no cwd still gets a row,
+ * so it can be counted as unattributed instead of vanishing from the join.
+ */
+export function normalizeProject(cwd) {
+	if (typeof cwd !== "string") return "";
+	const trimmed = cwd.trim();
+	if (trimmed === "" || trimmed === "/" || /^[A-Za-z]:[\\/]?$/.test(trimmed)) return trimmed === "" ? "" : trimmed;
+	return trimmed.replace(/[\\/]+$/, "");
 }
 
 const SUMS = COLUMNS.map((c) => `COALESCE(SUM(${c}), 0) AS ${c}`).join(", ");
@@ -136,6 +174,7 @@ export class LedgerStore {
 			// The index is disposable by design, so a version mismatch is discarded
 			// rather than migrated. The logs it was built from are untouched.
 			this.#db.exec("DELETE FROM session_rollups");
+			this.#db.exec("DELETE FROM sessions");
 			this.#db.exec("DELETE FROM checkpoints");
 			this.#db.prepare("UPDATE meta SET value = ? WHERE key = 'schemaVersion'").run(String(SCHEMA_VERSION));
 		}
@@ -149,6 +188,11 @@ export class LedgerStore {
 			 VALUES (?, ?, ?, ?, ?, ${marks})`
 		);
 		this.#stmt.deleteRollups = this.#db.prepare("DELETE FROM session_rollups WHERE sessionId = ?");
+		this.#stmt.upsertSession = this.#db.prepare(
+			`INSERT INTO sessions (sessionId, project) VALUES (?, ?)
+			 ON CONFLICT (sessionId) DO UPDATE SET project = excluded.project`
+		);
+		this.#stmt.deleteSession = this.#db.prepare("DELETE FROM sessions WHERE sessionId = ?");
 		this.#stmt.upsertCheckpoint = this.#db.prepare(
 			`INSERT INTO checkpoints (sessionId, consumedSeq, logRevision, cursor, dshVersion, updatedAt)
 			 VALUES (?, ?, ?, ?, ?, ?)
@@ -246,6 +290,10 @@ export class LedgerStore {
 		const updatedAt = options.updatedAt ?? Date.now();
 		this.#transaction(() => {
 			this.#stmt.deleteRollups.run(sessionId);
+			// Written for every swept session, including one with no cwd, so the
+			// "which project" question has an answer for all of them — even when
+			// that answer is "we do not know".
+			this.#stmt.upsertSession.run(sessionId, normalizeProject(options.project));
 			for (const [day, entry] of state.days) {
 				for (const [key, buckets] of entry.routes) {
 					if (COLUMNS.every((column) => buckets[column] === 0)) continue;
@@ -275,6 +323,7 @@ export class LedgerStore {
 	dropSession(sessionId) {
 		this.#transaction(() => {
 			this.#stmt.deleteRollups.run(sessionId);
+			this.#stmt.deleteSession.run(sessionId);
 			this.#stmt.deleteCheckpoint.run(sessionId);
 		});
 	}
@@ -287,6 +336,7 @@ export class LedgerStore {
 	reset() {
 		this.#transaction(() => {
 			this.#db.exec("DELETE FROM session_rollups");
+			this.#db.exec("DELETE FROM sessions");
 			this.#db.exec("DELETE FROM checkpoints");
 		});
 	}
@@ -321,6 +371,29 @@ export class LedgerStore {
 		const { sql, params } = rangeClause(range);
 		return this.#db
 			.prepare(`SELECT site, ${SUMS} FROM session_rollups ${sql} GROUP BY site`)
+			.all(...params)
+			.map(decorate)
+			.sort((a, b) => b.tokens - a.tokens);
+	}
+
+	/**
+	 * Per-project totals, biggest first.
+	 *
+	 * A LEFT JOIN, and deliberately so. A rollup row whose session predates the
+	 * sessions table — or whose write failed — must still be counted, under `''`,
+	 * rather than dropped by an inner join. Usage that silently leaves the totals
+	 * is worse than usage nobody can name: the first is invisible, the second is
+	 * a row on the panel saying so.
+	 */
+	byProject(range = {}, site = undefined) {
+		const { sql, params } = rangeClause(range, site, "r.");
+		return this.#db
+			.prepare(
+				`SELECT COALESCE(s.project, '') AS project, ${SUMS}
+				 FROM session_rollups r LEFT JOIN sessions s ON s.sessionId = r.sessionId
+				 ${sql}
+				 GROUP BY COALESCE(s.project, '')`
+			)
 			.all(...params)
 			.map(decorate)
 			.sort((a, b) => b.tokens - a.tokens);
@@ -388,7 +461,13 @@ export class LedgerStore {
 
 	/** The full route breakdown as JSON-ready rows. */
 	exportJson(range = {}, site = undefined) {
-		return { generatedAt: Date.now(), range, site, rows: this.byRoute(range, site) };
+		// Projects ride alongside the route rows rather than as a column on them.
+		// A route row is one (day, site, provider, model) cell and a project is a
+		// property of the session behind it, so folding one into the other would
+		// split every row by a dimension most consumers of this export are not
+		// asking about. The CSV keeps only the route table, because a second
+		// table inside one CSV is worse than an absent one.
+		return { generatedAt: Date.now(), range, site, rows: this.byRoute(range, site), projects: this.byProject(range, site) };
 	}
 
 	/** The full route breakdown as CSV. */

@@ -211,7 +211,7 @@ test("diagnostics report counts and identifiers only", () => {
 		store.commitSession("s1", state, { dshVersion: "0.1.0-rc.6" });
 
 		const d = store.diagnostics();
-		assert.equal(d.schemaVersion, 1);
+		assert.equal(d.schemaVersion, 2);
 		assert.equal(d.sessionsTracked, 1);
 		assert.equal(d.sessionsWithUsage, 1);
 		assert.equal(d.firstDay, "2026-08-14");

@@ -220,6 +220,12 @@ window.__ModuleLoader__.load({
 			".tkl_rows{flex-direction:column;display:flex}",
 			".tkl_row{width:100%;align-items:center;gap:8px;border:0;background:0 0;border-bottom:1px solid var(--dsw-alias-border-l1);padding:6px 4px;font:inherit;text-align:left;cursor:pointer;display:flex;border-radius:var(--tkl-radius-xs)}",
 			".tkl_row:last-child{border-bottom:0}",
+			// Same layout as a site row, without the affordances: projects are a
+			// breakdown, not a filter, and a row that looks clickable and is not
+			// is worse than one that plainly is not.
+			".tkl_rowStatic{cursor:default}",
+			".tkl_rowStatic:hover{background:0 0}",
+			".tkl_rowPath{color:var(--dsw-alias-label-caption);font-size:10px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left;min-width:0;flex:1}",
 			".tkl_row:hover{background:var(--dsw-alias-interactive-bg-hover)}",
 			".tkl_row[data-on]{background:var(--dsw-alias-interactive-bg-active)}",
 			".tkl_rowName{color:var(--dsw-alias-label-primary);flex:none;width:150px;min-width:0;font-size:12px;line-height:18px;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}",
@@ -371,6 +377,8 @@ window.__ModuleLoader__.load({
 			swatch: "tkl_swatch",
 			rows: "tkl_rows",
 			row: "tkl_row",
+			rowStatic: "tkl_rowStatic",
+			rowPath: "tkl_rowPath",
 			rowName: "tkl_rowName",
 			rowValue: "tkl_rowValue",
 			rowMeta: "tkl_rowMeta",
@@ -649,6 +657,52 @@ window.__ModuleLoader__.load({
 		 * change that selection, so hiding the others would strand you on whatever
 		 * you last clicked. Clicking the active row clears the filter.
 		 */
+		/**
+		 * Which project the tokens went to.
+		 *
+		 * Keyed on the directory a session ran in, which is what a project is
+		 * here. The workspace title is a label over the top of that, not the key
+		 * — a session started in a subdirectory, or in a directory nobody
+		 * registered, belongs to no workspace and would otherwise vanish.
+		 *
+		 * A breakdown, not a filter. The relay picker is the one selection the
+		 * panel has, and a second one would double the states every other section
+		 * has to be correct in for a question nobody has asked yet.
+		 */
+		function ProjectRows({ data, translate }) {
+			const rows = data.projects ?? [];
+			if (rows.length === 0) return jsx("p", { className: S.note, children: translate("projects.none") });
+			const total = rows.reduce((sum, r) => sum + (r.tokens ?? 0), 0);
+
+			return jsx("div", {
+				className: S.rows,
+				children: rows.map((row) => {
+					// A session with no cwd in its header. Its own row, named as
+					// such: usage that cannot be attributed has to be visible, or
+					// the other rows silently stop adding up to the total.
+					const label = row.unattributed === true ? translate("projects.unattributed") : row.label;
+					return jsxs(
+						"div",
+						{
+							className: `${S.row} ${S.rowStatic}`,
+							title: row.path ?? label,
+							children: [
+								jsx("span", { className: S.rowName, children: label }),
+								// Two projects called `web` in different trees are one
+								// ambiguous row without this. Shown only where the
+								// label is a workspace title, since otherwise the name
+								// IS the last segment of the path.
+								row.titled === true ? jsx("span", { className: S.rowPath, children: row.path }) : null,
+								jsx("span", { className: S.rowValue, children: fmt(row.tokens) }),
+								jsx("span", { className: S.rowMeta, children: `${Math.round(share(row.tokens, total))}%` })
+							]
+						},
+						row.project
+					);
+				})
+			});
+		}
+
 		function SiteRows({ data, site, onSelect, translate }) {
 			const rows = data.sites ?? [];
 			if (rows.length === 0) return jsx("p", { className: S.note, children: translate("sites.none") });
@@ -1427,6 +1481,11 @@ window.__ModuleLoader__.load({
 						title: translate("section.sites"),
 						children: jsx(SiteRows, { data, site, onSelect, translate })
 					}),
+					// Above the activity strip: "which project" is asked more often
+					// than "which day", and the strip is the tallest thing here.
+					empty
+						? null
+						: jsx(Section, { title: translate("section.projects"), children: jsx(ProjectRows, { data, translate }) }),
 					empty
 						? null
 						: jsx(Section, {
@@ -1580,6 +1639,9 @@ window.__ModuleLoader__.load({
 			"section.sites": "中转站分布",
 			"section.activity": "活跃度",
 			"section.models": "模型",
+			"section.projects": "按项目",
+			"projects.none": "还没有能归到项目的用量。",
+			"projects.unattributed": "未记录目录",
 			"filter.clear": "只看 {site} ×",
 			"caption.requests": "{n} 请求",
 			"caption.hit": "缓存命中 {rate}",
@@ -1671,6 +1733,9 @@ window.__ModuleLoader__.load({
 			"section.sites": "By relay site",
 			"section.activity": "Activity",
 			"section.models": "Models",
+			"section.projects": "By project",
+			"projects.none": "No usage has been attributed to a project yet.",
+			"projects.unattributed": "No directory recorded",
 			"filter.clear": "{site} only ×",
 			"caption.requests": "{n} requests",
 			"caption.hit": "{rate} cached",
@@ -1806,6 +1871,7 @@ window.__ModuleLoader__.load({
 		exports.Body = Body;
 		exports.StatRow = StatRow;
 		exports.SiteRows = SiteRows;
+		exports.ProjectRows = ProjectRows;
 		exports.colorOf = colorOf;
 		exports.ActivityStrip = ActivityStrip;
 		exports.ModelTable = ModelTable;

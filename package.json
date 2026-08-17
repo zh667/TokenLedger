@@ -20,6 +20,7 @@
     "./package.json": "./package.json",
     "./plugin": "./src/plugin.js",
     "./pricing": "./src/pricing.js",
+    "./projects": "./src/projects.js",
     "./quota": "./src/quota.js",
     "./relay-sites": "./src/relay-sites.js",
     "./report": "./src/report.js",

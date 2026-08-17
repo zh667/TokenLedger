@@ -50,7 +50,10 @@ const root = await import("../src/index.js");
 
 test("the package root is a valid Cordis plugin, because the entry name points at it", async () => {
 	assert.equal(typeof root.apply, "function", "a bare entry name loads the root export as the plugin");
-	assert.ok(Array.isArray(root.inject));
+	// Cordis accepts either an array or `{ required, optional }`. The object
+	// form is what lets a service supply a nicety — project display names —
+	// without its absence withholding the capability underneath.
+	assert.ok(Array.isArray(root.inject) || Array.isArray(root.inject?.required));
 	assert.equal(typeof root.name, "string");
 });
 

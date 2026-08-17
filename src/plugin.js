@@ -28,6 +28,7 @@
 import { applyUsageDelta, dayKey } from "./usage.js";
 import { RelaySiteRegistry, SITE_TYPES, createSiteResolver, domainOf } from "./relay-sites.js";
 import { createFingerprintRegistry } from "./fingerprints.js";
+import { describeProject, readProjectTitles } from "./projects.js";
 import { discoverFromContext, mergeSites, withKnownSoftware } from "./discovery.js";
 import { createBalanceReader, listAccounts } from "./balance.js";
 import { registerRoutes } from "./http.js";
@@ -68,7 +69,13 @@ export const name = "tokenledger";
  * forever. The optional-capability idiom in this codebase is `ctx.get(name)`,
  * which returns the service or undefined without registering a dependency.
  */
-export const inject = ["sessionPersistence"];
+export const inject = {
+	required: ["sessionPersistence"],
+	// `workspace` only supplies display names for project directories. A
+	// composition without it still gets the whole per-project breakdown, named
+	// by directory, so requiring it would trade a real capability for a label.
+	optional: ["workspace"]
+};
 
 /** Defaults chosen so an unconfigured mount still does something useful. */
 const DEFAULTS = {
@@ -220,7 +227,11 @@ export async function sweep(persistence, store, options = {}) {
 			applyUsageDelta(state, events, { resolveSite });
 			store.commitSession(sessionId, state, {
 				logRevision: revision,
-				dshVersion: options.dshVersion
+				dshVersion: options.dshVersion,
+				// The directory the session ran in. Immutable — DSH stamps the
+				// header once at creation — so re-folding a session can only ever
+				// write the same value back.
+				project: snapshot.header?.cwd
 			});
 			stats.updated++;
 			stats.events += events.length;
@@ -365,6 +376,10 @@ async function runSiteCommand(args, deps) {
  */
 export async function runCommand(rawInput, deps) {
 	const { store, config = {}, sweep: doSweep, reindex, logger, sites, saveRelays, saveUnavailableBecause } = deps;
+	// Workspace titles, resolved on the sweep because the lookup is async. Absent
+	// in a composition with no workspace service, and then every project row is
+	// named by its directory — which is the fallback, not a degraded state.
+	const projectTitles = deps.projectTitles?.() ?? new Map();
 	const args = String(rawInput ?? "").trim().split(/\s+/).filter(Boolean);
 
 	if (args[0] === "site") {
@@ -450,6 +465,7 @@ export async function runCommand(rawInput, deps) {
 		models: store.byModel(range, site),
 		sites: store.bySite(range),
 		providers: store.byProvider(range, site),
+		projects: store.byProject(range, site).map((row) => describeProject(row.project, projectTitles.get(row.project))),
 		priced: config.rates === undefined ? null : priceWithConfiguredRates(store, range, site, config.rates),
 		siteFilter: site
 	});
@@ -548,6 +564,24 @@ export function apply(ctx, userConfig = {}) {
 	// stuck panel.
 	let lastSweepAt;
 
+	// Workspace titles for the directories the index knows about, refreshed once
+	// per sweep. `resolveByPath` is async and the panel payload is assembled in
+	// one synchronous pass, so the lookup cannot happen there; doing it per
+	// distinct directory per sweep also keeps it off the panel-open path, where
+	// it would be a handful of filesystem calls every time someone looks.
+	let projectTitles = new Map();
+
+	const refreshProjectTitles = async () => {
+		try {
+			const paths = store.byProject({}).map((row) => row.project);
+			projectTitles = await readProjectTitles(paths, ctx.get?.("workspace"));
+		} catch (error) {
+			// A row keeps its directory name. Nothing about the usage it holds is
+			// less true for want of a nicer label.
+			logger?.debug?.("tokenledger: could not read workspace titles: %s", error?.message ?? error);
+		}
+	};
+
 	const runSweep = async () => {
 		// A slow sweep must not overlap itself and double the read load.
 		if (running) return undefined;
@@ -577,6 +611,7 @@ export function apply(ctx, userConfig = {}) {
 					stats.failed
 				);
 			}
+			await refreshProjectTitles();
 			lastSweepAt = Date.now();
 			return stats;
 		} catch (error) {
@@ -720,6 +755,7 @@ export function apply(ctx, userConfig = {}) {
 			reindex: api.reindex,
 			logger,
 			sites: () => directory.sites,
+			projectTitles: () => projectTitles,
 			refresh: () => void refreshDirectory(),
 			settle: fingerprints.settle,
 			probeStatus: fingerprints.status,
@@ -753,6 +789,7 @@ export function apply(ctx, userConfig = {}) {
 			priced: (range, site) =>
 				config.rates === undefined ? null : priceWithConfiguredRates(store, range, site, config.rates),
 			accounts: () => listAccounts(ctx, { softwareOf: fingerprints.software }),
+			projectTitles: () => projectTitles,
 			lastSweepAt: () => lastSweepAt,
 			balance: createBalanceReader(ctx, {
 				softwareOf: fingerprints.software,
