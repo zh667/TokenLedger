@@ -173,7 +173,10 @@ export function renderReport(input) {
 	out.push("");
 	if (configured) {
 		out.push("  中转站分布");
-		const siteRows = sites.map((s) => [s.site === "direct" ? "直连/官方" : s.site, num(s.tokens)]);
+		const siteRows = sites.map((s) => [
+			s.site === "direct" ? "直连/官方" : s.site === "unrouted" ? "未知路由" : s.site,
+			num(s.tokens)
+		]);
 		out.push(...table([{ title: "" }, { title: "tokens", align: "right" }], siteRows).slice(1).map((l) => `  ${l}`));
 	} else if (providers.length > 0) {
 		out.push("  Provider 路由分布");

@@ -23,6 +23,10 @@
 
 import { createHash } from "node:crypto";
 
+// The site vocabulary belongs to the fold, so it is imported rather than
+// duplicated. One-way: `usage.js` imports nothing.
+import { DIRECT } from "./usage.js";
+
 /** Supported relay implementations. */
 export const SITE_TYPES = Object.freeze(["newapi", "sub2api"]);
 
@@ -145,8 +149,15 @@ export class RelaySiteRegistry {
  * @param registry - the relay-site registry.
  * @param providerBaseUrls - `Map<providerId, baseUrl>` or a plain object,
  *   describing how each DSH provider route is currently configured.
- * @returns `(providerId) => siteId | undefined`, where undefined means the call
- *   did not go through a configured relay and should count as direct.
+ * @returns `(providerId) => siteId | DIRECT | undefined`. A site id means the
+ *   route points at a known relay; `DIRECT` means the route is configured and
+ *   points at no relay, so the call went straight to the vendor; `undefined`
+ *   means the directory has no such route at all and where the call went is
+ *   genuinely unknown.
+ *
+ *   Those last two used to be one answer. They are not the same claim, and
+ *   merging them put relay traffic under "direct/official" on a real install
+ *   whenever a route had since been renamed or removed.
  */
 export function createSiteResolver(registry, providerBaseUrls) {
 	const lookup =
@@ -154,9 +165,10 @@ export function createSiteResolver(registry, providerBaseUrls) {
 	const cache = new Map();
 	return (providerId) => {
 		if (cache.has(providerId)) return cache.get(providerId);
-		const site = registry.matchOrigin(lookup.get(providerId));
-		const id = site?.id;
-		cache.set(providerId, id);
-		return id;
+		// Presence in the directory is the thing being asked, so it is checked
+		// before the origin match rather than inferred from its failure.
+		const answer = lookup.has(providerId) ? (registry.matchOrigin(lookup.get(providerId))?.id ?? DIRECT) : undefined;
+		cache.set(providerId, answer);
+		return answer;
 	};
 }

@@ -598,6 +598,37 @@ test("a relay balance renders through the same card as the vendor's", async () =
 	assert.equal(quotaOnly.includes("¥"), false, "money must not be invented from an unknown scale");
 });
 
+test("an unrecognised route is its own row, not folded into direct", async () => {
+	// The bug this section exists to prevent: a relay whose route was renamed
+	// counted as "direct/official", which is a claim about where the money went.
+	const { exports, render } = await loadBundle();
+	const data = payload({
+		sites: [
+			{ site: "direct", tokens: 100 },
+			{ site: "unrouted", tokens: 335 },
+			{ site: "api.relay-one.example", tokens: 46 }
+		]
+	});
+	const tree = render(exports.SiteRows, { data, site: undefined, onSelect() {}, translate: T });
+	const text = textOf(tree);
+	assert.equal(findAll(tree, "tkl_row").length, 3, "three buckets, three rows");
+	assert.ok(text.includes("sites.direct"), "the vendor row keeps its own name");
+	assert.ok(text.includes("sites.unrouted"), "and the unknown says so in words, through the dictionary");
+	// The relay keeps its host as its label; only the two non-relay buckets are
+	// translated, so a raw bucket id never reaches the interface.
+	assert.ok(text.includes("api.relay-one.example"));
+});
+
+test("neither direct nor unrouted consumes a relay colour slot", async () => {
+	// They are not relays. Letting either take a slot shifts every real site's
+	// colour, and gives an unknown the same visual weight as a named one.
+	const { exports } = await loadBundle();
+	assert.equal(exports.colorOf("direct", 0), "var(--tkl-direct)");
+	assert.equal(exports.colorOf("unrouted", 0), "var(--tkl-level-0)");
+	assert.equal(exports.colorOf("api.relay-one.example", 0), "var(--tkl-series-0)");
+	assert.equal(exports.colorOf("another.example", 1), "var(--tkl-series-1)");
+});
+
 test("the picker only appears when there is a choice to make", async () => {
 	const { exports, render } = await loadBundle();
 	assert.equal(render(exports.AccountPicker, { accounts: [], value: undefined, onChange() {}, translate: T }), null);
