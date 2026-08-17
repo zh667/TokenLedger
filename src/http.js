@@ -208,6 +208,39 @@ export function usagePayload(deps, query) {
 }
 
 /**
+ * Service names worth reporting when the one we want has not turned up.
+ *
+ * Not an exhaustive list of what a composition holds — there is no public way
+ * to enumerate that — but every name this package has ever reached for, plus
+ * the one it reached for wrongly. Printing which of these resolve turns "the
+ * panel 404s" into "the host provides `httpServer`, so we are asking for the
+ * wrong thing" or "this composition genuinely has no web server".
+ */
+const KNOWN_SERVICES = [
+	"httpServer",
+	"webServer",
+	"sessionPersistence",
+	"sessionQuery",
+	"settings",
+	"credentials",
+	"commands",
+	"llm",
+	"workspace"
+];
+
+/** Which of the names above this context can actually resolve. */
+function visibleServices(ctx) {
+	if (typeof ctx.get !== "function") return [];
+	return KNOWN_SERVICES.filter((name) => {
+		try {
+			return ctx.get(name) !== undefined;
+		} catch {
+			return false;
+		}
+	});
+}
+
+/**
  * Register the read-only routes, if this composition has a web server.
  *
  * `httpServer` is reached through a nested `inject` rather than the plugin's
@@ -236,7 +269,26 @@ export function registerRoutes(ctx, deps) {
 		if (immediate === undefined || typeof immediate.register !== "function") return false;
 		return attachRoutes(ctx, immediate, deps);
 	}
+	// A nested inject that never fires is invisible: no error, no log, and the
+	// only symptom is a 404 in a browser console that says nothing about the
+	// host. Twice now that has cost days. So the wait announces itself, and says
+	// so again if it is still waiting — with the services that DO exist, because
+	// "which name is right" is the question that was actually wrong both times.
+	deps.logger?.info?.("tokenledger: waiting for httpServer to serve %s", BASE_PATH);
+	let attached = false;
+	// Injectable so a test can reach this branch without sleeping through it.
+	const nagging = setTimeout(() => {
+		if (attached) return;
+		deps.logger?.warn?.(
+			"tokenledger: still no httpServer after 10s — the panel will 404. Services this context can see: %s",
+			visibleServices(ctx).join(", ") || "(none)"
+		);
+	}, deps.routeWaitMs ?? 10_000);
+	nagging.unref?.();
+
 	ctx.inject(["httpServer"], (scoped) => {
+		attached = true;
+		clearTimeout(nagging);
 		attachRoutes(scoped, scoped.httpServer, deps);
 		deps.logger?.info?.("tokenledger: serving %s and %s", USAGE_PATH, BALANCE_PATH);
 	});

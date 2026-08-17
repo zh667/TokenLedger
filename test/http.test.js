@@ -233,6 +233,55 @@ test("the web server is waited for, not sampled at mount", async () => {
 	assert.equal(registered[0].path, USAGE_PATH);
 });
 
+test("a wait that never ends says so, and names what the context does have", async () => {
+	// The failure mode that cost two rounds: a nested inject fiber hangs, the
+	// entry still reads as activated, and the only symptom is a 404 in a browser
+	// console that says nothing about the host. Both times the cause was asking
+	// for the wrong service NAME while the right service sat right there — so
+	// the warning lists what resolves, which makes the mismatch the first thing
+	// you read.
+	const logged = [];
+	const ctx = {
+		get: (name) => (name === "webServer" || name === "settings" ? {} : undefined),
+		inject: () => {}, // scheduled and never fires, exactly like the real bug
+		effect: (fn) => fn()
+	};
+	registerRoutes(ctx, {
+		store: {},
+		sites: () => [],
+		routeWaitMs: 1,
+		logger: { info: (...a) => logged.push(a.join(" ")), warn: (...a) => logged.push(a.join(" ")) }
+	});
+
+	assert.ok(logged.some((line) => line.includes("waiting for httpServer")), "the wait has to announce itself");
+	await new Promise((resolve) => setTimeout(resolve, 20));
+
+	const nag = logged.find((line) => line.includes("still no httpServer"));
+	assert.ok(nag, "a wait that never ends must eventually say so");
+	assert.ok(nag.includes("webServer"), "and name the service that IS there, which is the whole clue");
+	assert.equal(nag.includes("the panel will 404"), true, "in the words the symptom appears as");
+});
+
+test("the nag is cancelled once the routes attach", async () => {
+	// A warning after a successful start would be worse than none: the next
+	// person would learn to ignore it.
+	const logged = [];
+	const ctx = {
+		get: () => undefined,
+		inject: (deps, run) => run({ httpServer: { register: () => () => {} }, effect: (fn) => fn() }),
+		effect: (fn) => fn()
+	};
+	registerRoutes(ctx, {
+		store: {},
+		sites: () => [],
+		routeWaitMs: 1,
+		logger: { info: (...a) => logged.push(a.join(" ")), warn: (...a) => logged.push(a.join(" ")) }
+	});
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	assert.equal(logged.some((line) => line.includes("still no httpServer")), false);
+	assert.ok(logged.some((line) => line.includes("serving")));
+});
+
 test("a Cordis without ctx.inject still registers immediately", async () => {
 	// Older harnesses, and the test doubles above. The fallback must not be a
 	// silent no-op.
