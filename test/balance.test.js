@@ -29,6 +29,7 @@ test("every scheme answers the same shape, so one card renders all of them", () 
 	for (const [name, spec] of Object.entries(SCHEMES)) {
 		assert.equal(typeof spec.read, "function", name);
 		assert.equal(typeof spec.label, "string", name);
+		if (spec.envelope !== undefined) assert.equal(typeof spec.envelope, "function", name);
 	}
 });
 
@@ -550,6 +551,87 @@ test("zai reads available against total", async () => {
 	assert.equal(result.total, 64);
 	assert.equal(result.granted, 100);
 	assert.equal(result.currency, "CNY");
+});
+
+// --- vendors that refuse with a 200 ------------------------------------------
+//
+// Probed live with an invalid Bearer and a control path that does not exist:
+//
+//   GET https://api.z.ai/api/monitor/usage/quota/limit
+//     -> 200 {"code":401,"msg":"token expired or incorrect","success":false}
+//   GET https://api.z.ai/api/monitor/nope-404            (control)
+//     -> 200 {"code":401,"msg":"token expired or incorrect","success":false}
+//
+// The control is the point: the status line does not even distinguish a route
+// that exists from one that never did, so nothing can be read off it.
+
+test("a refusal dressed as a 200 is a failure, not an empty account", async () => {
+	const result = await readBalance({
+		scheme: "zai",
+		origin: "https://api.z.ai",
+		apiKey: "bad-key",
+		fetch: okJson({ code: 401, msg: "token expired or incorrect", success: false })
+	});
+	assert.equal(result.fetched, false, "the vendor refused; nothing was read");
+	assert.equal(result.reason, "upstream-401");
+	assert.equal(result.total, undefined, "an account we could not read has no balance to report");
+	assert.equal(result.isAvailable, undefined);
+});
+
+test("an envelope refusal reads differently from a transport failure", async () => {
+	// Both are failures, and they are not the same failure: one means the vendor
+	// answered and said no, the other means the status line said no. Collapsing
+	// them loses the only thing that tells you the endpoint is even alive.
+	const envelope = await readBalance({
+		scheme: "zai",
+		origin: "https://api.z.ai",
+		apiKey: "k",
+		fetch: okJson({ success: false, msg: "nope" })
+	});
+	const transport = await readBalance({
+		scheme: "zai",
+		origin: "https://api.z.ai",
+		apiKey: "k",
+		fetch: async () => ({ ok: false, status: 401 })
+	});
+	assert.equal(envelope.reason, "upstream-error", "no code in the body means no number to report");
+	assert.equal(transport.reason, "http-401");
+});
+
+test("a success code spelled 0 is still a success", async () => {
+	// The refusal signal is `success:false`; `code` only supplies the number.
+	// Reading any non-200 code as a refusal would report a live account as
+	// unreadable on every vendor that spells success `0`, which is common.
+	const result = await readBalance({
+		scheme: "zai",
+		origin: "https://api.z.ai",
+		apiKey: "k",
+		fetch: okJson({ code: 0, data: { total_balance: 100, available_balance: 64 } })
+	});
+	assert.equal(result.fetched, true);
+	assert.equal(result.total, 64);
+});
+
+test("a vendor that carries neither convention is left alone", async () => {
+	// `/api/paas/v4/balance` may answer with a bare `data` object. An envelope
+	// that fires on absence would break every such response.
+	const result = await readBalance({
+		scheme: "zai",
+		origin: "https://api.z.ai",
+		apiKey: "k",
+		fetch: okJson({ data: { total_balance: 10, available_balance: 10 } })
+	});
+	assert.equal(result.fetched, true);
+	assert.equal(result.total, 10);
+});
+
+test("schemes whose vendor uses real status codes gain no envelope", async () => {
+	// DeepSeek, Moonshot, OpenRouter and New API all answer 401 with a 401. A
+	// blanket envelope check would start rejecting their success bodies for
+	// carrying an unrelated `code` field.
+	for (const scheme of ["deepseek", "moonshot", "openrouter", "newapi", "sub2api"]) {
+		assert.equal(SCHEMES[scheme].envelope, undefined, scheme);
+	}
 });
 
 test("a vendor response missing every field fails soft, with no zeros invented", async () => {
