@@ -85,7 +85,7 @@ export function sparkline(values) {
 /**
  * Render the usage report.
  *
- * @param input - `{ range, days, models, sites, providers?, priced?, siteFilter? }`,
+ * @param input - `{ range, days, models, sites, providers?, projects?, priced?, siteFilter? }`,
  *   where `days`/`models`/`sites` come straight from the store's query methods.
  * @returns markdown-safe monospace text.
  */
@@ -96,6 +96,7 @@ export function renderReport(input) {
 		models = [],
 		sites = [],
 		providers = [],
+		projects = [],
 		priced = null,
 		siteFilter
 	} = input;
@@ -187,6 +188,16 @@ export function renderReport(input) {
 		out.push("  如果你在用中转站却没显示，用 `/tokenledger site add <路由名> <地址>` 补一条。");
 	}
 
+	// Which project, when there is more than one to tell apart. A single-project
+	// install already knows the answer, and a section whose every row says the
+	// same thing is noise between the reader and the numbers.
+	const named = projects.filter((p) => p.tokens > 0);
+	if (named.length > 1) {
+		out.push("");
+		out.push("  按项目");
+		const rows = named.map((p) => [p.unattributed === true ? "未记录目录" : (p.label ?? p.project), num(p.tokens)]);
+		out.push(...table([{ title: "" }, { title: "tokens", align: "right" }], rows).slice(1).map((l) => `  ${l}`));
+	}
 
 	return out.join("\n");
 }
