@@ -147,8 +147,42 @@ test("styles are injected once, tagged so a re-execution can find them", async (
 	assert.ok(tag.textContent.includes(".tkl_panel"));
 	// Every colour must come from a DSH token or a scoped --tkl-* value, or the
 	// panel will not follow the user's theme.
-	assert.ok(tag.textContent.includes("var(--dsw-alias-bg-base)"));
+	assert.ok(tag.textContent.includes("var(--dsw-alias-bg-overlay,var(--dsw-alias-bg-base))"));
 	assert.ok(tag.textContent.includes("var(--dsw-alias-border-l1)"));
+});
+
+test("everything that floats asks for the overlay ground, with the page ground as fallback", async () => {
+	// `--dsw-alias-bg-base` is the PAGE's ground. A skin that wants a frosted
+	// look sets it to `transparent`, which is right for the page and fatal for
+	// anything floating above it: the panel then shows the wallpaper through its
+	// own text. The failure is invisible to us because the default theme leaves
+	// both tokens opaque, so only a test keeps this from being reverted by the
+	// next person who reaches for the token they see everywhere else.
+	const { dom } = await loadBundle();
+	const css = dom.head.children[0].textContent;
+
+	for (const selector of ["tkl_panel", "tkl_header", "tkl_tip"]) {
+		const rule = css.match(new RegExp(`\\.${selector}\\{[^}]*\\}`))[0];
+		assert.match(
+			rule,
+			/background:var\(--dsw-alias-bg-overlay,var\(--dsw-alias-bg-base\)\)/,
+			`.${selector} floats, so it must not paint itself with the page's ground`
+		);
+	}
+
+	// The fallback is the whole point: a theme defining no overlay token has to
+	// render exactly as it did before.
+	assert.equal(
+		/background:var\(--dsw-alias-bg-base\)/.test(css),
+		false,
+		"a bare page-ground background is the bug; every one of them must carry the overlay fallback"
+	);
+
+	// Elements that sit INSIDE the panel are a different case — they inherit its
+	// ground and must stay transparent, or they paint an opaque rectangle over
+	// a skin's own texture.
+	assert.match(css.match(/\.tkl_badge\{[^}]*\}/)[0], /background:0 0/, "the sidebar badge belongs to the sidebar");
+	assert.match(css.match(/\.tkl_select\{[^}]*\}/)[0], /background:0 0/, "the picker sits on the panel's ground");
 });
 
 test("the activity ramp is defined for both themes and for an explicit choice", async () => {
