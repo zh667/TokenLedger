@@ -12,6 +12,16 @@ const ev = (type, data) => ({ type, seq: seq++, time: DAY, data });
 const header = (provider, model) => ev("request/header", { header: { config: { provider, model } } });
 const message = (turn, step, provider, model, usage) =>
 	ev("assistant/message", { turn, step, message: { role: "assistant", source: { kind: "model", provider, model } }, usage });
+const eventAt = (seq, type, data) => ({ type, seq, time: DAY, data });
+const headerAt = (seq) => eventAt(seq, "request/header", { header: { config: { provider: "p", model: "m" } } });
+const messageAt = (seq, turn, inputTokens, outputTokens = 0) =>
+	eventAt(seq, "assistant/message", {
+		turn,
+		step: 1,
+		message: { role: "assistant", source: { kind: "model", provider: "p", model: "m" } },
+		usage: { inputTokens, outputTokens }
+	});
+const seedEndAt = (seq) => eventAt(seq, "session/end-seed", {});
 
 /**
  * A persistence double shaped like the real one: `listSnapshots()` returns
@@ -22,7 +32,7 @@ const message = (turn, step, provider, model, usage) =>
 const fakePersistence = (sessions) => ({
 	async listSnapshots() {
 		return [...sessions.entries()].map(([id, s]) => ({
-			header: { version: 0, id, createdAt: DAY },
+			header: { version: 0, id, createdAt: DAY, ...s.header },
 			revision: s.revision
 		}));
 	},
@@ -110,6 +120,104 @@ test("a changed revision reads only the tail and stays exact", async () => {
 		assert.equal(stats.events, 1, "only the appended event was read");
 		assert.equal(store.totals().inputTokens, 150);
 		assert.equal(store.totals().requests, 2);
+	});
+});
+
+test("a fork counts only usage recorded after its inherited seed", async () => {
+	await withStore(async (store) => {
+		const parentEvents = [headerAt(0), messageAt(1, 1, 100, 10)];
+		const childEvents = [
+			...structuredClone(parentEvents),
+			seedEndAt(2),
+			headerAt(3),
+			messageAt(4, 2, 50, 5)
+		];
+		const sessions = new Map([
+			["parent", { revision: "parent-r1", events: parentEvents }],
+			[
+				"child",
+				{
+					revision: "child-r1",
+					header: { parentSession: "parent", seedLength: parentEvents.length },
+					events: childEvents
+				}
+			]
+		]);
+
+		const stats = await sweep(fakePersistence(sessions), store, {});
+
+		assert.equal(stats.events, 5, "the child's two inherited events are not folded again");
+		assert.equal(store.totals().inputTokens, 150);
+		assert.equal(store.totals().outputTokens, 15);
+		assert.equal(store.totals().requests, 2);
+	});
+});
+
+test("nested forks count each model request exactly once", async () => {
+	await withStore(async (store) => {
+		const parentEvents = [messageAt(0, 1, 100)];
+		const childEvents = [
+			...structuredClone(parentEvents),
+			seedEndAt(1),
+			messageAt(2, 2, 50)
+		];
+		const grandchildEvents = [
+			...structuredClone(childEvents),
+			seedEndAt(3),
+			messageAt(4, 3, 25)
+		];
+		const sessions = new Map([
+			["parent", { revision: "parent-r1", events: parentEvents }],
+			["child", { revision: "child-r1", header: { parentSession: "parent", seedLength: 1 }, events: childEvents }],
+			[
+				"grandchild",
+				{
+					revision: "grandchild-r1",
+					header: { parentSession: "child", seedLength: childEvents.length },
+					events: grandchildEvents
+				}
+			]
+		]);
+
+		await sweep(fakePersistence(sessions), store, {});
+
+		assert.equal(store.totals().inputTokens, 175);
+		assert.equal(store.totals().requests, 3);
+	});
+});
+
+test("a fork resumes incrementally after establishing its seed checkpoint", async () => {
+	await withStore(async (store) => {
+		const inherited = [messageAt(0, 1, 100, 10)];
+		const events = [...structuredClone(inherited), seedEndAt(1)];
+		const sessions = new Map([
+			[
+				"child",
+				{
+					revision: "r1",
+					header: { parentSession: "parent", seedLength: inherited.length },
+					events
+				}
+			]
+		]);
+		const persistence = fakePersistence(sessions);
+		const reads = [];
+		const recording = {
+			...persistence,
+			readFrom: (id, fromSeq) => {
+				reads.push(fromSeq);
+				return persistence.readFrom(id, fromSeq);
+			}
+		};
+
+		await sweep(recording, store, {});
+		events.push(messageAt(2, 2, 50, 5));
+		sessions.get("child").revision = "r2";
+		await sweep(recording, store, {});
+
+		assert.deepEqual(reads, [1, 2]);
+		assert.equal(store.totals().tokens, 55);
+		assert.equal(store.totals().requests, 1);
 	});
 });
 
