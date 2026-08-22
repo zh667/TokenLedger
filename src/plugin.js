@@ -237,7 +237,15 @@ export async function sweep(persistence, store, options = {}) {
 			}
 
 			const state = store.loadState(sessionId);
-			const { events } = await persistence.readFrom(sessionId, state.consumedSeq + 1);
+			// A fork's durable log starts with a copy of its parent's event prefix.
+			// DSH records the exclusive end of that inherited prefix as seedLength.
+			// Counting it again under the child's session id makes every fork inflate
+			// the ledger. Existing checkpoints already point past the prefix; only a
+			// session's first read needs to start at the durable seed boundary.
+			const fromSeq = checkpoint === undefined
+				? (snapshot.header?.seedLength ?? 0)
+				: state.consumedSeq + 1;
+			const { events } = await persistence.readFrom(sessionId, fromSeq);
 			if ((events?.length ?? 0) === 0) {
 				stats.skipped++;
 				continue;

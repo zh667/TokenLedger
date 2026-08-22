@@ -30,7 +30,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { createUsageState, totalTokens, cacheHitRate, parseRouteKey, routeKey, zeroBuckets } from "./usage.js";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const COLUMNS = [
 	"inputTokens",
@@ -254,8 +254,9 @@ export class LedgerStore {
 
 	/**
 	 * Rehydrate a session's fold state so the next slice of events can be applied
-	 * incrementally. Returns a fresh state when the session is unknown, which is
-	 * what makes `readFrom(id, 0)` the natural rebuild.
+	 * incrementally. Returns a fresh state when the session is unknown; the sweep
+	 * then chooses seq 0 for a fresh session or the durable seed boundary for a
+	 * fork whose leading events belong to its parent.
 	 */
 	loadState(sessionId) {
 		const state = createUsageState();
@@ -334,9 +335,9 @@ export class LedgerStore {
 	}
 
 	/**
-	 * Discard the whole index. The next collection pass rebuilds it from
-	 * `readFrom(id, 0)`. This is the supported rebuild entry point, not a
-	 * last-resort repair.
+	 * Discard the whole index. The next collection pass rebuilds each session
+	 * from its non-inherited boundary. This is the supported rebuild entry point,
+	 * not a last-resort repair.
 	 */
 	reset() {
 		this.#transaction(() => {
